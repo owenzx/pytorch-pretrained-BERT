@@ -123,3 +123,9 @@ tensorflow_code
 
 # Models
 models
+
+# Outputs
+nohup.out.*
+
+.idea
+*~

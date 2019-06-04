@@ -71,6 +71,64 @@ def whitespace_tokenize(text):
     return tokens
 
 
+class SimpleTokenizer(object):
+    def __init__(self, vocab_file='./datasets/glove.840B.300d.txt', do_lower_case=True, max_len=None, never_split=("[UNK]", "[SEP]", "[PAD]", "[CLS]", "[MASK]"), topn=9999999999999):
+        self.vocab = self._load_vocab(vocab_file, topn)
+        self.max_len = max_len if max_len is not None else int(1e12)
+        self.basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case, never_split=never_split)
+        self.ids_to_tokens = collections.OrderedDict(
+            [(ids, tok) for tok, ids in self.vocab.items()])
+
+    def _load_vocab(self, vocab_file, topn):
+        """read from pretrained glove embeddings"""
+        vocab = collections.OrderedDict()
+        index = 0
+        vocab["[PAD]"] = index
+        index += 1
+        line_count = 0
+        with open(vocab_file, "r", encoding="utf-8") as reader:
+            while True:
+                line = reader.readline()
+                if not line:
+                    break
+                token = line.split()[0]
+                if token not in vocab:
+                    vocab[token] = index
+                    index += 1
+                line_count += 1
+                if line_count > topn:
+                    break
+        vocab["[UNK]"] = index
+        index += 1
+        return vocab
+
+    def tokenize(self, text):
+        split_tokens = self.basic_tokenizer.tokenize(text)
+        return split_tokens
+
+    def convert_tokens_to_ids(self, tokens):
+        ids = []
+        for token in tokens:
+            if token in self.vocab:
+                ids.append(self.vocab[token])
+            else:
+                ids.append(self.vocab["[UNK]"])
+        if len(ids) > self.max_len:
+            logger.warning(
+                "Token indices sequence length is longer than the specified maximum "
+                " sequence length for this BERT model ({} > {}). Running this"
+                " sequence through BERT will result in indexing errors".format(len(ids), self.max_len)
+            )
+        return ids
+
+    def convert_ids_to_tokens(self, ids):
+        tokens = []
+        for i in ids:
+            tokens.append(self.ids_to_tokens[i])
+        return tokens
+
+
+
 class BertTokenizer(object):
     """Runs end-to-end tokenization: punctuation splitting + wordpiece"""
 
