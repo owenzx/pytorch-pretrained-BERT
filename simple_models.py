@@ -25,7 +25,11 @@ class SimpleSequenceClassification(nn.Module):
         self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
         self.LSTM = nn.LSTM(config.hidden_size, config.hidden_size, num_layers=config.num_lstm_layers, dropout=config.hidden_dropout_prob, bidirectional=True)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.classifier = nn.Linear(2* config.hidden_size, num_labels)
+        self.classifier = nn.Sequential(
+            nn.Linear(2 * config.hidden_size, config.MLP_hidden),
+            nn.ReLU(),
+            nn.Linear(config.MLP_hidden, num_labels)
+        )
         self.apply(init_simple_weights)
         if glove_embs is not None:
             glove_embs = torch.tensor(glove_embs).float().cuda()
@@ -39,7 +43,9 @@ class SimpleSequenceClassification(nn.Module):
 
 
 
-        pooled_output = torch.sum(hiddens*attention_mask.float().unsqueeze(-1), dim=-2) / torch.sum(attention_mask).float()
+        #pooled_output = torch.sum(hiddens*attention_mask.float().unsqueeze(-1), dim=-2) / torch.sum(attention_mask).float()
+        pooled_output = torch.max(hiddens, dim=-2)[0]
+
 
         #pooled_output = torch.mean(hiddens, -1)
         pooled_output = self.dropout(pooled_output)

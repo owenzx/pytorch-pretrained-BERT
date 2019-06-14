@@ -1,17 +1,33 @@
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE, WEIGHTS_NAME, CONFIG_NAME
-
-MRQA_FILE = './datasets/QA/dev_in/SQuAD.jsonl.gz'
-
-import gzip,json
-
-zip_handle = gzip.open(MRQA_FILE, 'rb')
-
-header = zip_handle.readline()
 
 
-for example in zip_handle:
-    print(json.loads(example))
-    print(json.loads(example).keys())
-    exit()
+class A(object):
+    """Base class for data converters for sequence classification data sets."""
 
-print(zip_handle[0])
+    def __init__(self, output_dir = None):
+        self.output_dir = output_dir
+
+
+
+class B(A):
+    def look(self):
+        print('AAA')
+
+
+    def look2(self):
+        print(self.output_dir)
+
+
+
+
+
+
+def main():
+    bb = B()
+    bb.look()
+    bb2 = B(output_dir='123')
+    bb2.look2()
+
+
+if __name__ == '__main__':
+    main()
+

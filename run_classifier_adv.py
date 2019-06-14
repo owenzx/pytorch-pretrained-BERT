@@ -23,6 +23,7 @@ import logging
 import os
 import random
 import sys
+import json
 
 import numpy as np
 import torch
@@ -48,7 +49,13 @@ from utils import *
 
 from data_processing import *
 
+from copy import deepcopy
+
 logger = logging.getLogger(__name__)
+
+handler = logging.StreamHandler(sys.stdout)
+logger.addHandler(handler)
+
 
 
 def convert_examples_to_features(examples, label_list, max_seq_length,
@@ -213,6 +220,16 @@ def compute_metrics(task_name, preds, labels, task_main):
         return {"mcc": matthews_corrcoef(labels, preds)}
     elif task_name == "sst-2":
         return {"acc": simple_accuracy(preds, labels)}
+    elif task_name == "yelp-2":
+        return {"acc": simple_accuracy(preds, labels)}
+    elif task_name == "yelp-5":
+        return {"acc": simple_accuracy(preds, labels)}
+    elif task_name == "amazon-2":
+        return {"acc": simple_accuracy(preds, labels)}
+    elif task_name == "amazon-5":
+        return {"acc": simple_accuracy(preds, labels)}
+    elif task_name == "dbpedia":
+        return {"acc": simple_accuracy(preds, labels)}
     elif task_name == "mrpc":
         return acc_and_f1(preds, labels)
     elif task_name == "sts-b":
@@ -229,6 +246,8 @@ def compute_metrics(task_name, preds, labels, task_main):
         return {"acc": compute_accuracy(preds, labels, task_main, task_name)}
     elif task_name == "wnli":
         return {"acc": compute_accuracy(preds, labels, task_main, task_name)}
+    elif task_name[:3] == "mtl":
+        return {"acc": compute_accuracy(preds, labels, task_main, task_name)}
     else:
         raise KeyError(task_name)
 
@@ -243,6 +262,10 @@ processors = {
     "qnli": QnliProcessor,
     "rte": RteProcessor,
     "wnli": WnliProcessor,
+    "yelp-2": Yelp2Processor,
+    "yelp-5": Yelp5Processor,
+    "amazon-2": Yelp2Processor,
+    "amazon-5": Yelp5Processor,
 }
 
 output_modes = {
@@ -255,6 +278,12 @@ output_modes = {
     "qnli": "classification",
     "rte": "classification",
     "wnli": "classification",
+    "mtl": "classification",
+    "yelp-2": "classification",
+    "yelp-5": "classification",
+    "amazon-2": "classification",
+    "amazon-5": "classification",
+    "dbpedia": "classification",
 }
 
 output_num = {
@@ -267,7 +296,13 @@ output_num = {
     "qnli": 2,
     "rte": 2,
     "wnli": 2,
+    "yelp-2": 2,
+    "yelp-5": 5,
+    "amazon-2": 2,
+    "amazon-5": 5,
+    "dbpedia": 14,
 }
+
 
 data_dirs = {
     "cola": './datasets/glue_data/CoLA/',
@@ -279,10 +314,26 @@ data_dirs = {
     "qnli": './datasets/glue_data/QNLI/',
     "rte": './datasets/glue_data/RTE/',
     "wnli": './datasets/glue_data/WNLI/',
+    "yelp-2": './datasets/yelp-2/yelp_review_polarity_csv/',
+    "yelp-5": './datasets/yelp-5/yelp_review_full_csv/',
+    "amazon-2": './datasets/amazon-2/amazon_review_polarity_csv/',
+    "amazon-5": './datasets/amazon-5/amazon_review_full_csv/',
+    "dbpedia": './datasets/dbpedia/dbpedia_csv/',
 }
 
+mtl_root_path = './datasets/mtl-dataset/subdatasets/'
+mtl_domains = ['apparel', 'dvd', 'kitchen_housewares', 'software', 'baby', 'electronics', 'magazines', 'sports_outdoors', 'books', 'health_personal_care', 'mr', 'toys_games', 'camera_photo', 'imdb', 'music', 'video']
 
-def eval_model(task_name, tokenizer, model, args, device, task_main, write2file=False):
+for dom in mtl_domains:
+    data_dirs['mtl-%s'%dom] = mtl_root_path + dom + '/'
+    processors['mtl-%s'%dom] = MtlProcessor
+    output_modes['mtl-%s'%dom] = 'classification'
+    output_num['mtl-%s'%dom] = 2
+
+
+
+
+def eval_model(task_name, tokenizer, model, args, device, task_main, results_dict, write2file=False, write_predictions=False):
     processor = processors[task_name]()
     output_mode = output_modes[task_name]
     label_list = processor.get_labels()
@@ -349,6 +400,19 @@ def eval_model(task_name, tokenizer, model, args, device, task_main, write2file=
         preds = np.argmax(preds, axis=1)
     elif output_mode == "regression":
         preds = np.squeeze(preds)
+    if write_predictions:
+        output_pred_file = os.path.join(args.output_dir, "pred_results_on_%s.txt"%task_name)
+        assert(len(preds) == len(eval_examples))
+        with open(output_pred_file, "w") as fw:
+            for i in range(len(preds)):
+                example_dict = {'guid': eval_examples[i].guid,
+                                'text_a': eval_examples[i].text_a,
+                                'text_b': eval_examples[i].text_b,
+                                'pred': preds[i].item(),
+                                'label': eval_examples[i].label}
+                json.dump(example_dict, fw)
+                fw.write('\n')
+
     result = compute_metrics(task_name, preds, all_label_ids.numpy(), task_main)
     #loss = tr_loss/global_step if args.do_train else None
 
@@ -357,6 +421,11 @@ def eval_model(task_name, tokenizer, model, args, device, task_main, write2file=
     #result['loss'] = loss
 
     output_eval_file = os.path.join(args.output_dir, "eval_results_on_%s.txt"%task_name)
+
+    for key in sorted(result.keys()):
+        if key not in results_dict.keys():
+            results_dict[key] = []
+        results_dict[key].append(result[key])
 
     if write2file:
         with open(output_eval_file, "w") as writer:
@@ -429,6 +498,24 @@ def eval_model(task_name, tokenizer, model, args, device, task_main, write2file=
         result['eval_loss'] = eval_loss
     #    result['global_step'] = global_step
     #    result['loss'] = loss
+
+        for key in sorted(result.keys()):
+            if key + '-MM' not in results_dict.keys():
+                results_dict[key + '-MM'] = []
+            results_dict[key + '-MM'].append(result[key])
+
+        if write_predictions:
+            output_pred_file = os.path.join(args.output_dir, "pred_results_on_%s-MM.txt"%task_name)
+            assert(len(preds) == len(eval_examples))
+            with open(output_pred_file, "w") as fw:
+                for i in range(len(preds)):
+                    example_dict = {'guid': eval_examples[i].guid,
+                                    'text_a': eval_examples[i].text_a,
+                                    'text_b': eval_examples[i].text_b,
+                                    'pred': preds[i].item(),
+                                    'label': eval_examples[i].label}
+                    json.dump(example_dict, fw)
+                    fw.write('\n')
 
         output_eval_file = os.path.join(args.output_dir, "eval_results_on_%s-MM.txt"%task_name)
         if write2file:
@@ -563,6 +650,32 @@ def main():
                         default=100000,
                         type=int,
                         help="only use top n word embeddings from glove")
+    parser.add_argument("--train_glove_embs",
+                        default=False,
+                        action='store_true',
+                        help='Add this argument to train the embeddings')
+    parser.add_argument("--real_path",
+                        default=None,
+                        type=str,
+                        help='The path to the real dataset to use for training')
+    parser.add_argument('--normal_adam',
+                        default=False,
+                        action='store_true',
+                        help='If set, use normal')
+    parser.add_argument('--mtl_domain',
+                        default=None,
+                        type=str,
+                        help='The domain for mtl datasets')
+    parser.add_argument('--lm_first',
+                        default=False,
+                        action='store_true',
+                        help='If set, first fine-tune by LM before training')
+    parser.add_argument('--num_per_label',
+                        default=-1,
+                        type=int,
+                        help='If >0, make sure # samples are equal for every label')
+
+
 
 
     args = parser.parse_args()
@@ -623,7 +736,7 @@ def main():
     if task_main not in processors:
         raise ValueError("Task not found: %s" % (task_main))
 
-    processor = processors[task_main]()
+    processor = processors[task_main](args.output_dir)
     output_mode = output_modes[task_main]
 
     if args.test_task_names is None:
@@ -651,7 +764,10 @@ def main():
     train_examples = None
     num_train_optimization_steps = None
     if args.do_train:
-        train_examples = processor.get_train_examples(data_dir_main, args.data_portion)
+        if args.real_path is None:
+            train_examples = processor.get_train_examples(data_dir_main, args.data_portion, args.num_per_label)
+        else:
+            train_examples = processor.get_augmented_train_examples(args.real_path)
         num_train_optimization_steps = int(
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps) * args.num_train_epochs
         if args.local_rank != -1:
@@ -665,7 +781,7 @@ def main():
                   num_labels=num_labels)
     else:
         simple_config = SimpleConfig(tokenizer.vocab, config_sglsen_1)
-        model = SimpleSequenceClassification(simple_config, num_labels=num_labels, glove_embs=glove_embs)
+        model = SimpleSequenceClassification(simple_config, num_labels=num_labels, glove_embs=glove_embs, freeze_emb=not args.train_glove_embs)
     if args.fp16:
         model.half()
     model.to(device)
@@ -706,10 +822,16 @@ def main():
                                                  t_total=num_train_optimization_steps)
 
         else:
-            optimizer = BertAdam(optimizer_grouped_parameters,
-                                 lr=args.learning_rate,
-                                 warmup=args.warmup_proportion,
-                                 t_total=num_train_optimization_steps)
+            if not args.normal_adam:
+                optimizer = BertAdam(optimizer_grouped_parameters,
+                                     lr=args.learning_rate,
+                                     warmup=args.warmup_proportion,
+                                     t_total=num_train_optimization_steps)
+            else:
+                optimizer = torch.optim.Adam(optimizer_grouped_parameters, lr=args.learning_rate)
+
+
+    results_dict = {'train':{'loss':[]},'dev':{}}
 
     global_step = 0
     nb_tr_steps = 0
@@ -780,8 +902,10 @@ def main():
                     global_step += 1
                 if global_step % args.eval_step == 0:
                     for t_name in test_task_names:
+                        if t_name not in results_dict['dev'].keys():
+                            results_dict['dev'][t_name] = {}
                         logger.info("Eval on %s"%t_name)
-                        eval_model(t_name, tokenizer, model, args, device, task_main, write2file=False)
+                        eval_model(t_name, tokenizer, model, args, device, task_main, results_dict['dev'][t_name], write2file=False)
                     model.train()
 
     if args.do_train and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
@@ -817,8 +941,16 @@ def main():
 
     if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
         for t_name in test_task_names:
+            if t_name not in results_dict['dev'].keys():
+                results_dict['dev'][t_name] = {}
             logger.info("Eval on %s"%t_name)
-            eval_model(t_name, tokenizer, model, args, device, task_main, write2file=True)
+            eval_model(t_name, tokenizer, model, args, device, task_main, results_dict['dev'][t_name], write2file=True, write_predictions=True)
+
+    results_json_file = os.path.join(args.output_dir, "results.json")
+    with open(results_json_file, 'w') as fw:
+        json.dump(results_dict, fw)
+
+
 
 
 if __name__ == "__main__":

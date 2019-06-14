@@ -1,8 +1,18 @@
 ## TODO
-- [x] MNLI different data size
-- [ ] Debug and finish coding general framework for sentence classification (multi-domain/single domain)
+<!--- - [x] MNLI different data size
+- [x] Debug and finish coding general framework for sentence classification (multi-domain/single domain)
+- [x] Add most basic data augmentation and check the results
+- [x] Make every result a json file 
+-->
+- [x] Check what will be changed because of tuning BertAdam. Also Check if BertAdam is helpful for other models
+- [ ] Make the subsampled dataset balanced
+- [ ] Feature-based fine-tuning and cluster idea
+- [ ] Check how the predictions improved in person
+- [ ] LM fine-tuning
+- [ ] Write script for running exp multiple times (in parallel)
+- [x] Try more datasets
+- [ ] Start doing different ways of Bert fine-tuning
 - [ ] Set up Bert for QA
-- [ ] Check if BertAdam is helpful for other models
 
 
 
