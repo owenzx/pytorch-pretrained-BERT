@@ -18,6 +18,8 @@ class B(A):
 
 
 
+def C():
+    print('c')
 
 
 

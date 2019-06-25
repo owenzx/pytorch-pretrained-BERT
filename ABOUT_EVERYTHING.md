@@ -77,6 +77,26 @@ If a question has more than one answers, then only using the first one.
 ## Experiment Plans
 * Run Bert on MNLI for different portion of data and see how it is doing on MNLI/other datasets
 * Try simple augmentation rules such as Tong's, masking, etc.
+* First learn policy on large datasets and then transfer to small datasets
+
+    Training set: Leave one small portion untouched in training to train when doing validation. 
+    
+    
+    Training: Each time, sample a small training set and a large validation set (large enough for a stable evaluation). Apply augmentation, train model, get reward, update policy.
+    Validate: Train on the remaining part and get acc on the validation set
+    
+    Testing: Apply policy on other datasets and train/test 
+    
+    Alternative: keep training policy just on a small portion of training data, but have the risk of overfitting, but it may also stablize the training, so should try both.
+    
+    Subpolicy: 
+    
+    Strongest baseline: First fine-tune Bert on the large training set and then apply Bert to the smaller training set (both w/wo data augmentation) Should beat wo/wo, hopefully beat w/wo (but may need to transfer to distant domain)
+    
+    
+    Weak setting: assume no high resource, train on a small set and test on a small set
+    
+    
 
 
 
