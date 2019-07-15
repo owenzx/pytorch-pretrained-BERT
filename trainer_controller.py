@@ -32,6 +32,8 @@ class Trainer_Controller(object):
 
         self.baseline = None
 
+        self.clip_param = self.args.ppo_clip_param
+
 
 
     def build_optimizer(self):
@@ -39,7 +41,10 @@ class Trainer_Controller(object):
 
     def calc_reward(self, val_results):
         if "acc" in val_results.keys():
-            return (-1*self.args.reward_c)/val_results["acc"]
+            #return (-1*self.args.reward_c)/val_results["acc"]
+            return val_results["acc"]
+        else:
+            raise NotImplementedError
 
 
 
@@ -69,7 +74,14 @@ class Trainer_Controller(object):
         adv = reward - self.baseline
         adv_history.append(adv)
 
-        loss = -log_probs*utils.get_variable([adv], self.args.no_cuda, requires_grad=False)
+        if self.args.pg_algo == 'reinforce':
+            loss = -log_probs*utils.get_variable([adv], self.args.no_cuda, requires_grad=False)
+        elif self.args.pg_algo == 'ppo':
+            adv = utils.get_variable([adv], self.args.no_cuda, requires_grad=False)
+            ratio = torch.exp(log_probs - log_probs.detach())
+            surr1 = ratio * adv
+            surr2 = torch.clamp(ratio, 1.0-self.clip_param, 1.0+self.clip_param)
+            loss = -torch.min(surr1, surr2).mean()
 
         if self.args.entropy_mode == 'regularizer':
             loss -= self.args.entropy_coeff * entropy

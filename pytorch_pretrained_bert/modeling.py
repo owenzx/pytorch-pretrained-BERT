@@ -31,8 +31,11 @@ from io import open
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
+from . import modules
 
 from .file_utils import cached_path, WEIGHTS_NAME, CONFIG_NAME
+
+from allennlp.modules.span_extractors import EndpointSpanExtractor, SelfAttentiveSpanExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -560,6 +563,9 @@ class BertPreTrainedModel(nn.Module):
         from_tf = kwargs.get('from_tf', False)
         kwargs.pop('from_tf', None)
 
+        stop_dropout = kwargs.get('stop_dropout', False)
+        kwargs.pop('stop_dropout', None)
+
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
             archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
@@ -598,6 +604,10 @@ class BertPreTrainedModel(nn.Module):
             # Backward compatibility with old naming format
             config_file = os.path.join(serialization_dir, BERT_CONFIG_NAME)
         config = BertConfig.from_json_file(config_file)
+        if stop_dropout:
+            config.hidden_dropout_prob = 0.0
+            config.attention_probs_dropout_prob = 0.0
+
         logger.info("Model config {}".format(config))
         # Instantiate model.
         model = cls(config, *inputs, **kwargs)
@@ -988,8 +998,10 @@ class BertForSequenceClassification(BertPreTrainedModel):
         self.classifier = nn.Linear(config.hidden_size, num_labels)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None, detach_bert=False):
         _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
+        if detach_bert:
+            pooled_output = pooled_output.detach()
         pooled_output = self.dropout(pooled_output)
         logits = self.classifier(pooled_output)
 
@@ -1198,8 +1210,10 @@ class BertForQuestionAnswering(BertPreTrainedModel):
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, start_positions=None, end_positions=None):
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, start_positions=None, end_positions=None, detach_bert=False):
         sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
+        if detach_bert:
+            sequence_output = sequence_output.detach()
         logits = self.qa_outputs(sequence_output)
         start_logits, end_logits = logits.split(1, dim=-1)
         start_logits = start_logits.squeeze(-1)
@@ -1223,3 +1237,69 @@ class BertForQuestionAnswering(BertPreTrainedModel):
             return total_loss
         else:
             return start_logits, end_logits
+
+
+class BertForCoreference(BertPreTrainedModel):
+    def __init__(self, config):
+        super(BertForCoreference, self).__init__(config)
+        self.bert = BertModel(config)
+        self.span_extractor1 = self._make_span_extractor()
+        self.span_extractor2 = self._make_span_extractor()
+        self.span_extrators = [None, self.span_extractor1, self.span_extractor2]
+        self.proj1 = self._make_cnn_layer(d_inp)
+        self.proj2 = self._make_cnn_layer(d_inp)
+        self.projs = [None, self.proj1, self.proj2]
+        clf_input_dim = self.span_extrators[1].get_output_dim() + self.span_extrators[2].get_output_dim()
+
+        self.classifier = modules.Classifier.from_params(clf_input_dim, 2)
+
+        self.apply(self.init_bert_weights)
+
+    def _make_cnn_layer(self, d_inp):
+        """Make a CNN layer as a projection of local context.
+        CNN maps [batch_size, max_len, d_inp]
+        to [batch_size, max_len, proj_dim] with no change in length.
+        """
+        k = 1 + 2 * self.cnn_context
+        padding = self.cnn_context
+        return nn.Conv1d(
+            d_inp,
+            self.proj_dim,
+            kernel_size=k,
+            stride=1,
+            padding=padding,
+            dilation=1,
+            groups=1,
+            bias=True,
+        )
+
+
+    def _make_span_extractor(self):
+        if self.span_pooling == "attn":
+            return SelfAttentiveSpanExtractor(self.proj_dim)
+        else:
+            return EndpointSpanExtractor(self.proj_dim, combination=self.span_pooling)
+
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None, span1_l_position=None, span1_r_position=None, span2_l_position=None, span2_r_position=None, detach_bert=False):
+        sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
+        if detach_bert:
+            sequence_output = sequence_output.detach()
+        se_proj1 = self.projs[1](sequence_output)
+        se_proj2 = self.projs[2](sequence_output)
+
+        span1_indices = torch.cat([span1_l_position, span1_r_position], dim=2)
+        span2_indices = torch.cat([span2_l_position, span2_r_position], dim=2)
+
+        # No span_indices_mask, assume every passage only has one span
+        _kw = dict(sequence_mask=attention_mask.long(), span_indices_mask=None)
+
+
+        span1 = self.span_extractors[1](se_proj1, span1_indices, **_kw)
+        span2 = self.span_extractors[2](se_proj2, span2_indices, **_kw)
+        span_emb = torch.cat([span1, span2], dim=2)
+        logits = self.classifier(span_emb)
+
+        loss_fct = CrossEntropyLoss()
+        total_loss = loss_fct(logits, labels)
+
+        return total_loss, logits

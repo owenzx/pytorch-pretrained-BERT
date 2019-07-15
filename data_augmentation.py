@@ -42,7 +42,7 @@ def get_paraphrase_backtrans(raw_file_path):
 
 
 
-def para_interpolation_basic(input_para1, input_para2, magn_ratio=3):
+def para_interpolation_basic(input_para1, input_para2, magn_ratio=3, type=0):
     sens1 = sent_tokenize(input_para1)
     sens2 = sent_tokenize(input_para2)
 
@@ -61,7 +61,7 @@ def para_interpolation_basic(input_para1, input_para2, magn_ratio=3):
 
 
 
-def random_swap(input_sen, swap_ratio=3):
+def random_swap(input_sen, swap_ratio=3, type=0):
     tokenizer = TreebankWordTokenizer()
     detokenizer = TreebankWordDetokenizer()
     words = tokenizer.tokenize(input_sen)
@@ -127,7 +127,7 @@ def add_mask(input_sen, mask_ratio=3):
     return output_sen
 
 
-def swap_sen(input_sen, magn_ratio=3):
+def swap_sen(input_sen, magn_ratio=3, type=0):
     sens = sent_tokenize(input_sen)
 
     tot_len = len(sens)
@@ -137,7 +137,24 @@ def swap_sen(input_sen, magn_ratio=3):
     if swap_num == 0:
         return input_sen
 
-    selected_words_idx = np.random.choice(tot_len-1, swap_num, replace=False)
+    if type == 0:
+        selected_words_idx = np.random.choice(tot_len-1, swap_num, replace=False)
+    elif type == 1:
+        # swap first sentence
+        selected_words_idx = np.random.choice(tot_len-1, swap_num, replace=False)
+        if 0 not in selected_words_idx:
+            selected_words_idx[0] = 0
+    elif type == 2:
+        #last sentence
+        if tot_len < 2:
+            return input_sen
+        else:
+            selected_words_idx = np.random.choice(tot_len-1, swap_num, replace=False)
+            if tot_len - 2 not in selected_words_idx:
+                selected_words_idx[0] = tot_len - 2
+    else:
+        raise NotImplementedError
+
 
     for idx in selected_words_idx:
         sens[idx], sens[idx+1] = sens[idx+1], sens[idx]
@@ -146,9 +163,12 @@ def swap_sen(input_sen, magn_ratio=3):
 
     return output_sen
 
-def del_sen(input_sen, magn_ratio=3):
+def del_sen(input_sen, magn_ratio=3, type=0):
     sens = sent_tokenize(input_sen)
     tot_len = len(sens)
+
+    if tot_len <= 1:
+        return input_sen
 
     del_num = tot_len // (magn_ratio + 1)
 
@@ -157,7 +177,16 @@ def del_sen(input_sen, magn_ratio=3):
 
     print(tot_len)
     print(del_num)
-    selected_words_idx = np.random.choice(tot_len, del_num, replace=False)
+    if type == 0:
+        selected_words_idx = np.random.choice(tot_len, del_num, replace=False)
+    elif type == 1:
+        selected_words_idx = np.random.choice(tot_len, del_num, replace=False)
+        if 0 not in selected_words_idx:
+            selected_words_idx[0] = 0
+    elif type == 2:
+        selected_words_idx = np.random.choice(tot_len, del_num, replace=False)
+        if tot_len - 1 not in selected_words_idx:
+            selected_words_idx[0] = tot_len - 1
 
     result_sens = [sens[i] for i in range(tot_len) if  i not in selected_words_idx]
 
@@ -165,15 +194,25 @@ def del_sen(input_sen, magn_ratio=3):
 
     return output_sen
 
-def concat_para(input_sena, input_senb, magn_ratio=3):
+def concat_para(input_sena, input_senb, magn_ratio=3, type=0):
     sens1 = sent_tokenize(input_sena)
     sens2 = sent_tokenize(input_senb)
 
     len_sens1 = len(sens1)
     len_sens2 = len(sens2)
 
-    sens1_split_point = np.random.randint(1, len_sens1+1)
-    sens2_split_point = np.random.randint(0, len_sens2)
+    if type == 0:
+
+        sens1_split_point = np.random.randint(1, len_sens1+1)
+        sens2_split_point = np.random.randint(0, len_sens2)
+    elif type == 1:
+        sens1_split_point = 1
+        sens2_split_point = np.random.randint(0, len_sens2)
+    elif type == 2:
+        sens1_split_point = np.random.randint(1, len_sens1+1)
+        sens2_split_point = len_sens2 - 1
+    else:
+        raise NotImplementedError
 
     new_sens = sens1[:sens1_split_point] + sens2[sens2_split_point:]
 
@@ -205,7 +244,11 @@ def generate_aug_examples(examples, aug_policy):
     aug_policy = aug_policy[0]
 
     for sub_policy in aug_policy:
-        aug_method, aug_num, aug_magn = sub_policy
+        if len(sub_policy) == 3:
+            aug_method, aug_num, aug_magn = sub_policy
+            aug_type = 0
+        elif len(sub_policy) == 4:
+            aug_method, aug_num, aug_magn, aug_type = sub_policy
         aug_func = aug_func_dict[aug_method]
         if aug_method in ['para_int_basic', 'concat_para']:
             input_num = 2
@@ -219,14 +262,14 @@ def generate_aug_examples(examples, aug_policy):
             for j, example in enumerate(inp_examples):
                 new_guid = example.guid+'aug{}{}'.format(i, j)
                 if input_num == 1:
-                    new_text_a = aug_func(example.text_a, aug_magn)
-                    new_text_b = aug_func(example.text_b, aug_magn) if example.text_b is not None else None
+                    new_text_a = aug_func(example.text_a, aug_magn, aug_type)
+                    new_text_b = aug_func(example.text_b, aug_magn, aug_type) if example.text_b is not None else None
                 elif input_num == 2:
                     exampleb = inp_examples[np.random.randint(0,len(inp_examples))]
                     while exampleb.label != example.label:
                         exampleb = inp_examples[np.random.randint(0,len(inp_examples))]
-                    new_text_a = aug_func(example.text_a, exampleb.text_a, aug_magn)
-                    new_text_b = aug_func(example.text_b, exampleb.text_b, aug_magn) if example.text_b is not None else None
+                    new_text_a = aug_func(example.text_a, exampleb.text_a, aug_magn, aug_type)
+                    new_text_b = aug_func(example.text_b, exampleb.text_b, aug_magn, aug_type) if example.text_b is not None else None
                 new_label = example.label
                 new_example = InputExample(new_guid, new_text_a, new_text_b, new_label)
                 aug_examples.append(new_example)
@@ -331,11 +374,11 @@ y want to order the next size larger . that might solve the length discomfort , 
     print(para_interpolation_basic(para1, para2))
 
 if __name__ == '__main__':
-    #main()
+    main()
     #test()
     #raw_file_path = './datasets/mtl-dataset/subdatasets/apparel/train.tsv'
-    raw_file_path = './datasets/amazon-2/amazon_review_polarity_csv/train.csv'
-    get_paraphrase_backtrans(raw_file_path)
+    #raw_file_path = './datasets/amazon-2/amazon_review_polarity_csv/train.csv'
+    #get_paraphrase_backtrans(raw_file_path)
 
 
 

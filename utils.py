@@ -5,6 +5,17 @@ import torch
 from sklearn.metrics import matthews_corrcoef, f1_score
 from scipy.stats import pearsonr, spearmanr
 from data_processing import *
+import pickle
+
+
+def dump_datasets(examples, path):
+    pkl_path = path + '.pkl'
+    txt_path = path + '.txt'
+    with open(pkl_path, 'wb') as fw:
+        pickle.dump(examples, fw)
+    with open(txt_path, 'w') as fw:
+        for e in examples:
+            fw.write(e.text_a + '\t' + e.label + '\n')
 
 
 

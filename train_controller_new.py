@@ -284,11 +284,51 @@ def main():
                         default=1,
                         type=int)
 
+    parser.add_argument('--pg_algo',
+                        default='reinforce',
+                        type=str)
+    parser.add_argument('--ppo_clip_param',
+                        type=float,
+                        default=0.2)
+
+    parser.add_argument('--new_valid_policy',
+                        default=False,
+                        action='store_true')
+
+    parser.add_argument('--fix_subsample_path',
+                        default=None,
+                        type=str)
+
+    parser.add_argument('--load_subsample',
+                        default=False,
+                        action='store_true')
+
+    parser.add_argument('--tsa',
+                        default=None,
+                        type=str,
+                        help='if not none, use tsa schedule')
+
+    parser.add_argument('--pol_type_num',
+                        default=3,
+                        type=int,
+                        help='the number of policy types')
+
+    parser.add_argument('--adv_pol',
+                        default=False,
+                        action='store_true')
+
+    parser.add_argument('--freeze_bert',
+                        default=False,
+                        action = 'store_true')
+
+
     args = parser.parse_args()
+
+    assert(args.pg_algo in ['reinforce', 'ppo'])
 
     if not args.use_nonbert:
         print(args.use_nonbert)
-        assert (args.bert_model is not None)
+        #assert (args.bert_model is not None)
 
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
@@ -316,6 +356,9 @@ def main():
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    #torch.backends.cudnn.deterministic = True
+    #torch.backends.cudnn.benchmark = False
+
     if n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
@@ -371,7 +414,22 @@ def main():
 
     trainer_controller = Trainer_Controller(args, logger, device, num_labels)
 
-    train_examples, val_examples = sample_meta_trainval(full_examples, args.meta_train_size, args.meta_val_size)
+    if args.load_subsample:
+        assert(args.fix_subsample_path is not None)
+
+        if os.path.exists(args.fix_subsample_path+'.train.pkl') and os.path.exists(args.fix_subsample_path+'.val.pkl'):
+            with open(args.fix_subsample_path+'.train.pkl', 'rb') as fr:
+                train_examples = pickle.load(fr)
+            with open(args.fix_subsample_path+'.val.pkl', 'rb') as fr:
+                val_examples = pickle.load(fr)
+        else:
+            #exit()
+            train_examples, val_examples = sample_meta_trainval(full_examples, args.meta_train_size, args.meta_val_size)
+            dump_datasets(train_examples, args.fix_subsample_path+'.train')
+            dump_datasets(val_examples, args.fix_subsample_path+'.val')
+
+    else:
+        train_examples, val_examples = sample_meta_trainval(full_examples, args.meta_train_size, args.meta_val_size)
 
     if args.do_train:
     #    trainer_main.build_optimizer(train_examples)
@@ -391,17 +449,35 @@ def main():
 
         if epoch_idx == 0 or epoch_idx == args.max_meta_epoch-1:
             trainer_main.reset_model()
-            trainer_main.build_optimizer(train_examples)
+            #train_examples = train_examples[:32]
+            trainer_main.build_dataloader_and_optimizer(train_examples)
             trainer_main.train(train_examples)
 
             val_metrics = trainer_main.eval(val_examples)
             logger.info("BASELINE_ACC on epoch {}: {}".format(epoch_idx, val_metrics["acc"]))
+            #train_examples = train_examples[:96]
+
+            #for debug_i in range(5):
+            #    random.seed(debug_i)
+            #    np.random.seed(debug_i)
+            #    torch.manual_seed(debug_i)
+#
+#                #random.seed(0)
+#                #np.random.seed(0)
+#                #torch.manual_seed(0)
+#                trainer_main.reset_model()
+#                trainer_main.build_dataloader_and_optimizer(train_examples)
+#                trainer_main.train(train_examples)
+#                val_metrics = trainer_main.eval(val_examples)
+#                logger.info("BASELINE_ACC on epoch {}: {}".format(epoch_idx, val_metrics["acc"]))
+
+            #exit()
 
 
         aug_policy, log_probs, entropies = trainer_controller.get_policy(with_details=True)
         aug_examples = generate_aug_examples(train_examples, aug_policy)
         trainer_main.reset_model()
-        trainer_main.build_optimizer(aug_examples)
+        trainer_main.build_dataloader_and_optimizer(aug_examples)
 
         # get data
         trainer_main.train(aug_examples)
@@ -414,10 +490,11 @@ def main():
         trainer_controller.train(reward, log_probs, entropies)
 
         if epoch_idx % args.save_epoch == 0:
-            aug_policy = trainer_controller.get_policy()
+            if args.new_valid_policy:
+                aug_policy = trainer_controller.get_policy()
             aug_examples = generate_aug_examples(val_train_examples, aug_policy)
             trainer_main.reset_model()
-            trainer_main.build_optimizer(aug_examples)
+            trainer_main.build_dataloader_and_optimizer(aug_examples)
             trainer_main.train(aug_examples)
             val_metrics = trainer_main.eval(val_examples)
             logger.info("VAL_TRAIN_ACC on epoch {}: {}".format(epoch_idx, val_metrics["acc"]))

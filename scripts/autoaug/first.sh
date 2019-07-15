@@ -10,8 +10,8 @@ python train_controller_new.py \
   --learning_rate 2e-5 \
   --num_train_epochs 1.0 \
   --max_seq_length 128 \
-  --meta_train_size 10 \
-  --meta_val_size 10 \
+  --meta_train_size 100 \
+  --meta_val_size 100 \
   --max_meta_epoch 10 \
   --save_epoch 1 \
   --debug \

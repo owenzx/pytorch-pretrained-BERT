@@ -5,6 +5,7 @@ from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
                               TensorDataset)
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn import CrossEntropyLoss, MSELoss
+from torch.nn import functional as F
 import json
 from pytorch_pretrained_bert.optimization import BertAdam, WarmupLinearSchedule
 from pytorch_pretrained_bert.tokenization import BertTokenizer, SimpleTokenizer
@@ -18,7 +19,7 @@ from tqdm import tqdm, trange
 
 
 class Trainer_Main(object):
-    def __init__(self, args, logger, device, num_labels, output_mode, label_list, task_name):
+    def __init__(self, args, logger, device, num_labels, output_mode, label_list, task_name):#
         self.args = args
         self.logger = logger
         self.device = device
@@ -27,9 +28,12 @@ class Trainer_Main(object):
         self.label_list = label_list
         self.task_name = task_name
 
+        self.has_initialized = False
+
         self.tokenizer, pretrain_embs = self._get_tokenizer()
 
         self.model = self._get_model(pretrain_embs=pretrain_embs)
+
 
         if self.args.fp16:
             self.model.half()
@@ -45,6 +49,26 @@ class Trainer_Main(object):
         elif args.n_gpu > 1:
             self.model = torch.nn.DataParallel(self.model)
 
+        # Save random initialized model to improve stability of results
+        self.save_init_model()
+
+
+
+
+    def save_init_model(self):
+        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+
+        output_model_file = os.path.join(self.args.output_dir, WEIGHTS_NAME)
+        output_config_file = os.path.join(self.args.output_dir, CONFIG_NAME)
+
+        torch.save(model_to_save.state_dict(), output_model_file)
+        model_to_save.config.to_json_file(output_config_file)
+
+        self.tokenizer.save_vocabulary(self.args.output_dir)
+
+        self.has_initialized = True
+
+
     def reset_model(self):
         self.tokenizer, pretrain_embs = self._get_tokenizer()
         self.model = self._get_model(pretrain_embs=pretrain_embs)
@@ -52,7 +76,10 @@ class Trainer_Main(object):
 
     def _get_tokenizer(self):
         if not self.args.use_nonbert:
-            tokenizer = BertTokenizer.from_pretrained(self.args.bert_model, do_lower_case=self.args.do_lower_case)
+            if not self.has_initialized:
+                tokenizer = BertTokenizer.from_pretrained(self.args.bert_model, cache_dir=self.args.cache_dir, do_lower_case=self.args.do_lower_case)
+            else:
+                tokenizer = BertTokenizer.from_pretrained(self.args.output_dir, do_lower_case=self.args.do_lower_case)
             pretrain_embs = None
         else:
             tokenizer = SimpleTokenizer(vocab_file=self.args.glove_path, do_lower_case=self.args.do_lower_case,
@@ -68,22 +95,43 @@ class Trainer_Main(object):
                                                                                  'distributed_{}'.format(
                                                                                      self.args.local_rank))
         if not self.args.use_nonbert:
-            model = BertForSequenceClassification.from_pretrained(self.args.bert_model,
-                                                                  cache_dir=cache_dir,
-                                                                  num_labels=self.num_labels)
+            if not self.has_initialized:
+                model = BertForSequenceClassification.from_pretrained(self.args.bert_model,
+                                                                      cache_dir=cache_dir,
+                                                                      num_labels=self.num_labels, stop_dropout=True)
+            else:
+                model = BertForSequenceClassification.from_pretrained(self.args.output_dir,
+                                                                      num_labels=self.num_labels, stop_dropout=True)
         else:
             simple_config = SimpleConfig(self.tokenizer.vocab, config_sglsen_1)
             model = SimpleSequenceClassification(simple_config, num_labels=self.num_labels, glove_embs=pretrain_embs,
                                                  freeze_emb=not self.args.train_glove_embs)
-
-        print(type(model))
-
         return model
 
-    def build_optimizer(self, train_examples):
+    def build_dataloader_and_optimizer(self, train_examples):
+        label_list = self.label_list
+
+        train_features = convert_examples_to_features(
+            train_examples, label_list, self.args.max_seq_length, self.tokenizer, self.output_mode, self.logger)
+        all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
+        all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
+        all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
+
+        if self.output_mode == "classification":
+            all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+        elif self.output_mode == "regression":
+            all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.float)
+
+        train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+        if self.args.local_rank == -1:
+            train_sampler = RandomSampler(train_data)
+        else:
+            train_sampler = DistributedSampler(train_data)
+        self.train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=self.args.train_batch_size)
+
         num_train_optimization_steps = int(
             len(
-                train_examples) / self.args.train_batch_size / self.args.gradient_accumulation_steps) * self.args.num_train_epochs
+                self.train_dataloader) // self.args.gradient_accumulation_steps) * self.args.num_train_epochs
         if self.args.local_rank != -1:
             num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
@@ -122,33 +170,29 @@ class Trainer_Main(object):
         self.warmup_linear = WarmupLinearSchedule(warmup=self.args.warmup_proportion,
                                                   t_total=num_train_optimization_steps)
 
+
     def train(self, train_examples):
+        train_dataloader = self.train_dataloader
         label_list = self.label_list
         global_step = 0
-        train_features = convert_examples_to_features(
-            train_examples, label_list, self.args.max_seq_length, self.tokenizer, self.output_mode, self.logger)
+
         self.logger.info("***** Running training *****")
         self.logger.info("  Num examples = %d", len(train_examples))
         self.logger.info("  Batch size = %d", self.args.train_batch_size)
-        # self.logger.info("  Num steps = %d", num_train_optimization_steps)
-        all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
-        all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
-        all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
-
-        if self.output_mode == "classification":
-            all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-        elif self.output_mode == "regression":
-            all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.float)
-
-        train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
-        if self.args.local_rank == -1:
-            train_sampler = RandomSampler(train_data)
-        else:
-            train_sampler = DistributedSampler(train_data)
-        train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=self.args.train_batch_size)
+        # Create tsa schedule
+        tsa = self.args.tsa
+        if tsa is not None:
+            num_train_optimization_steps = int(
+                len(
+                    self.train_dataloader) // self.args.gradient_accumulation_steps) * self.args.num_train_epochs
+            if tsa == 'linear':
+                eta_0 = 1.0 / len(label_list)
+                eta_f = 1.0
+                tsa_etas = list(np.linspace(eta_0, eta_f, num_train_optimization_steps))[::-1]
+            else:
+                raise NotImplementedError
 
         self.model.train()
-
 
         for _ in trange(int(self.args.num_train_epochs), desc="Epoch"):
             tr_loss = 0
@@ -158,11 +202,25 @@ class Trainer_Main(object):
                 input_ids, input_mask, segment_ids, label_ids = batch
 
                 # define a new function to compute loss values for both output_modes
-                logits = self.model(input_ids, segment_ids, input_mask, labels=None)
+                logits = self.model(input_ids, segment_ids, input_mask, labels=None, detach_bert=self.args.freeze_bert)
 
                 if self.output_mode == "classification":
-                    loss_fct = CrossEntropyLoss()
+                    loss_fct = CrossEntropyLoss(reduction='none')
                     loss = loss_fct(logits.view(-1, self.num_labels), label_ids.view(-1))
+                    if tsa is not None:
+                        softmax = torch.nn.Softmax()
+                        prob = softmax(logits.view(-1, self.num_labels))
+                        eta = tsa_etas.pop()
+                        label_prob = torch.sum(prob * F.one_hot(label_ids, num_classes=self.num_labels).float(), -1)
+
+                        tsa_mask = (label_prob < eta).float()
+                        loss = loss * tsa_mask
+                        if tsa_mask.sum() == 0:
+                            loss = torch.tensor(0., requires_grad=True)
+                        else:
+                            loss = loss.sum()/tsa_mask.sum()
+                    else:
+                        loss = loss.mean()
                 elif self.output_mode == "regression":
                     loss_fct = MSELoss()
                     loss = loss_fct(logits.view(-1), label_ids.view(-1))

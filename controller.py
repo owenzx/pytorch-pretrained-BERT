@@ -32,6 +32,29 @@ def _form_policy(aug_methods, aug_probs, aug_mgns, func_names, args):
     return policy
 
 
+def _form_policy_adv(aug_methods, aug_probs, aug_mgns, aug_types, func_names, args):
+    assert(len(aug_methods) == len(aug_probs) == len(aug_mgns))
+    policy = []
+    subp_num = len(aug_methods)
+    step_num = len(aug_methods[0])
+    for i in range(subp_num):
+        policy.append([])
+        for j in range(step_num):
+            # Convert Aug_probs
+            aug_prob = aug_probs[i][j].data.cpu().numpy()
+            if aug_prob == 0:
+                aug_prob = 0
+            else:
+                aug_prob = 2**(float(aug_prob)-3)
+            # Aug_mgns start from 1 so have to add 1
+            aug_type = aug_types[i][j].data.cpu().numpy()
+            aug_mgn = aug_mgns[i][j].data.cpu().numpy() + 1
+            policy[i].append((func_names[aug_methods[i][j].data.cpu().numpy()], aug_prob, aug_mgn, aug_type))
+    if args.log_all_policy:
+        with open(args.policy_log_path, 'a') as fw:
+            fw.write(str(policy) + '\n')
+    return policy
+
 class Controller(torch.nn.Module):
     """Based on
     https://github.com/pytorch/examples/blob/master/word_language_model/model.py
@@ -50,7 +73,10 @@ class Controller(torch.nn.Module):
         # for every even step,
         self.num_tokens = []
         for idx in range(self.args.num_mix):
-            self.num_tokens += [len(args.ways_aug), args.num_aug_prob, args.num_aug_mag]
+            if self.args.adv_pol:
+                self.num_tokens += [len(args.ways_aug), args.num_aug_prob, args.num_aug_mag, args.pol_type_num]
+            else:
+                self.num_tokens += [len(args.ways_aug), args.num_aug_prob, args.num_aug_mag]
         self.func_names = args.ways_aug
 
         num_total_tokens = sum(self.num_tokens)
@@ -125,50 +151,96 @@ class Controller(torch.nn.Module):
         aug_magns = []
         entropies = []
         log_probs = []
+        aug_types = []
         # NOTE(brendan): The RNN controller alternately outputs an activation,
         # followed by a previous node, for each block except the last one,
         # which only gets an activation function. The last node is the output
         # node, and its previous node is the average of all leaf nodes.
-        for block_idx in range(3*self.args.num_mix):
-            logits, hidden = self.forward(inputs,
-                                          hidden,
-                                          block_idx,
-                                          is_embed=(block_idx == 0))
+        if self.args.adv_pol:
+            for block_idx in range(4*self.args.num_mix):
+                logits, hidden = self.forward(inputs,
+                                              hidden,
+                                              block_idx,
+                                              is_embed=(block_idx == 0))
 
-            probs = F.softmax(logits, dim=-1)
-            log_prob = F.log_softmax(logits, dim=-1)
-            # TODO(brendan): .mean() for entropy?
-            entropy = -(log_prob * probs).sum(1, keepdim=False)
+                probs = F.softmax(logits, dim=-1)
+                log_prob = F.log_softmax(logits, dim=-1)
+                # TODO(brendan): .mean() for entropy?
+                entropy = -(log_prob * probs).sum(1, keepdim=False)
 
-            action = probs.multinomial(num_samples=1).data
-            selected_log_prob = log_prob.gather(
-                1, utils.get_variable(action, requires_grad=False))
+                action = probs.multinomial(num_samples=1).data
+                selected_log_prob = log_prob.gather(
+                    1, utils.get_variable(action, requires_grad=False))
 
-            # TODO(brendan): why the [:, 0] here? Should it be .squeeze(), or
-            # .view()? Same below with `action`.
-            entropies.append(entropy)
-            log_probs.append(selected_log_prob[:, 0])
+                # TODO(brendan): why the [:, 0] here? Should it be .squeeze(), or
+                # .view()? Same below with `action`.
+                entropies.append(entropy)
+                log_probs.append(selected_log_prob[:, 0])
 
-            # 0: function, 1: previous node
-            mode = block_idx % 3
-            inputs = utils.get_variable(
-                action[:, 0] + sum(self.num_tokens[:mode]),
-                requires_grad=False)
+                # 0: function, 1: previous node
+                mode = block_idx % 4
+                inputs = utils.get_variable(
+                    action[:, 0] + sum(self.num_tokens[:mode]),
+                    requires_grad=False)
 
-            if mode == 0:
-                aug_methods.append(action[:, 0])
-            elif mode == 1:
-                aug_probs.append(action[:, 0])
-            elif mode == 2:
-                aug_magns.append(action[:,0])
-
-
-        aug_methods= torch.stack(aug_methods).transpose(0, 1)
-        aug_probs = torch.stack(aug_probs).transpose(0, 1)
-        aug_magns = torch.stack(aug_magns).transpose(0,1)
+                if mode == 0:
+                    aug_methods.append(action[:, 0])
+                elif mode == 1:
+                    aug_probs.append(action[:, 0])
+                elif mode == 2:
+                    aug_magns.append(action[:,0])
+                elif mode == 3:
+                    aug_types.append(action[:,0])
 
 
-        aug_policy = _form_policy(aug_methods, aug_probs, aug_magns, self.func_names, self.args)
+            aug_methods= torch.stack(aug_methods).transpose(0, 1)
+            aug_probs = torch.stack(aug_probs).transpose(0, 1)
+            aug_magns = torch.stack(aug_magns).transpose(0,1)
+            aug_types = torch.stack(aug_types).transpose(0,1)
+
+            aug_policy = _form_policy_adv(aug_methods, aug_probs, aug_magns, aug_types, self.func_names, self.args)
+        else:
+
+            for block_idx in range(3*self.args.num_mix):
+                logits, hidden = self.forward(inputs,
+                                              hidden,
+                                              block_idx,
+                                              is_embed=(block_idx == 0))
+
+                probs = F.softmax(logits, dim=-1)
+                log_prob = F.log_softmax(logits, dim=-1)
+                # TODO(brendan): .mean() for entropy?
+                entropy = -(log_prob * probs).sum(1, keepdim=False)
+
+                action = probs.multinomial(num_samples=1).data
+                selected_log_prob = log_prob.gather(
+                    1, utils.get_variable(action, requires_grad=False))
+
+                # TODO(brendan): why the [:, 0] here? Should it be .squeeze(), or
+                # .view()? Same below with `action`.
+                entropies.append(entropy)
+                log_probs.append(selected_log_prob[:, 0])
+
+                # 0: function, 1: previous node
+                mode = block_idx % 3
+                inputs = utils.get_variable(
+                    action[:, 0] + sum(self.num_tokens[:mode]),
+                    requires_grad=False)
+
+                if mode == 0:
+                    aug_methods.append(action[:, 0])
+                elif mode == 1:
+                    aug_probs.append(action[:, 0])
+                elif mode == 2:
+                    aug_magns.append(action[:,0])
+
+
+            aug_methods= torch.stack(aug_methods).transpose(0, 1)
+            aug_probs = torch.stack(aug_probs).transpose(0, 1)
+            aug_magns = torch.stack(aug_magns).transpose(0,1)
+
+
+            aug_policy = _form_policy(aug_methods, aug_probs, aug_magns, self.func_names, self.args)
 
         if save_dir is not None:
             with open(os.path.join(save_dir, 'aug_policy.json'), 'w') as fw:

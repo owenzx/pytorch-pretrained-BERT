@@ -119,6 +119,35 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
                               label_id=label_id))
     return features
 
+class CorefExample(object):
+    def __init__(self, guid, text_a, text_tokens, span1_l, span1_r, span2_l, span2_r, label):
+        self.guid = guid
+        self.text_a = text_a
+        self.text_tokens = text_tokens
+        self.span1_l = span1_l
+        self.span1_r = span1_r
+        self.span2_l = span2_l
+        self.span2_r = span2_r
+        self.label = label
+
+class InputExample(object):
+    """A single training/test example for simple sequence classification."""
+
+    def __init__(self, guid, text_a, text_b=None, label=None):
+        """Constructs a InputExample.
+
+        Args:
+            guid: Unique id for the example.
+            text_a: string. The untokenized text of the first sequence. For single
+            sequence tasks, only this sequence must be specified.
+            text_b: (Optional) string. The untokenized text of the second sequence.
+            Only must be specified for sequence pair tasks.
+            label: (Optional) string. The label of the example. This should be
+            specified for train and dev examples, but not for test examples.
+        """
+        self.guid = guid
+        self.text_a = text_a
+        self.label = label
 
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
@@ -252,9 +281,28 @@ class Yelp2Processor(DataProcessor):
             examples = basicSubsample(examples, data_portion)
         else:
             examples = balanceSubsample(examples, num_per_label)
-        if set_type == 'train' and data_portion!=1.0:
-            self._save_subsampled_examples(examples, lines, data_portion)
+        if set_type == 'train' and (data_portion!=1.0 or num_per_label!=-1):
+            self._save_subsampled_examples(examples, lines, data_portion, num_per_label)
         return examples
+
+    def _save_subsampled_examples(self, examples, lines, data_portion, num_per_label):
+        selected_lineids = [int(example.guid.split('-')[-1]) for example in examples]
+
+        selected_lines = [lines[i] for i in selected_lineids]
+        if data_portion != 1.0:
+            subsample_file = os.path.join(self.output_dir, "subsampled_{0}.txt".format(data_portion))
+            subsample_pkl_file = os.path.join(self.output_dir, "subsampled_{0}.pkl".format(data_portion))
+        else:
+            subsample_file = os.path.join(self.output_dir, "subsampled_{0}.txt".format(num_per_label))
+            subsample_pkl_file = os.path.join(self.output_dir, "subsampled_{0}.pkl".format(num_per_label))
+
+        with open(subsample_pkl_file, 'wb') as fw:
+            pickle.dump(examples, fw)
+
+        with open(subsample_file, 'w') as fw:
+            for line in selected_lines:
+                fw.write('\t'.join(line))
+                fw.write('\n')
 
 
 class Yelp5Processor(Yelp2Processor):

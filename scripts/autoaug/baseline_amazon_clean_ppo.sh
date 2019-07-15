@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 python train_controller_new.py \
-  --task_name yelp-2 \
+  --task_name amazon-2 \
   --bert_model bert-base-uncased \
   --do_train \
   --do_eval \
@@ -14,8 +14,9 @@ python train_controller_new.py \
   --meta_val_size 1000 \
   --max_meta_epoch 10000 \
   --save_epoch 1 \
+  --pg_algo ppo \
   --log_all_policy \
   --cache_dir ./berts/ \
-  --output_dir ./outputs/auto_baseline_yelp/ > ./outputs/auto_baseline_yelp.out
+  --output_dir ./outputs/auto_baseline_amazon_ppo/ > ./outputs/auto_baseline_amazon_ppo.out
 
 
