@@ -5,10 +5,10 @@ from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn import CrossEntropyLoss, MSELoss
 import json
-from pytorch_pretrained_bert.optimization import BertAdam, WarmupLinearSchedule
-from pytorch_pretrained_bert.tokenization import BertTokenizer, SimpleTokenizer
-from pytorch_pretrained_bert.modeling import BertForSequenceClassification, BertConfig
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE, WEIGHTS_NAME, CONFIG_NAME
+from my_bert.optimization import BertAdam, WarmupLinearSchedule
+from my_bert.tokenization import BertTokenizer, SimpleTokenizer
+from my_bert.modeling import BertForSequenceClassification, BertConfig
+from my_bert.file_utils import my_bert_CACHE, WEIGHTS_NAME, CONFIG_NAME
 
 from model_configs import *
 from simple_models import SimpleSequenceClassification

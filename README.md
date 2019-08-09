@@ -84,51 +84,51 @@ python -m pytest -sv tests/
 
 This package comprises the following classes that can be imported in Python and are detailed in the [Doc](#doc) section of this readme:
 
-- Eight **Bert** PyTorch models (`torch.nn.Module`) with pre-trained weights (in the [`modeling.py`](./pytorch_pretrained_bert/modeling.py) file):
-  - [`BertModel`](./pytorch_pretrained_bert/modeling.py#L639) - raw BERT Transformer model (**fully pre-trained**),
-  - [`BertForMaskedLM`](./pytorch_pretrained_bert/modeling.py#L793) - BERT Transformer with the pre-trained masked language modeling head on top (**fully pre-trained**),
-  - [`BertForNextSentencePrediction`](./pytorch_pretrained_bert/modeling.py#L854) - BERT Transformer with the pre-trained next sentence prediction classifier on top  (**fully pre-trained**),
-  - [`BertForPreTraining`](./pytorch_pretrained_bert/modeling.py#L722) - BERT Transformer with masked language modeling head and next sentence prediction classifier on top (**fully pre-trained**),
-  - [`BertForSequenceClassification`](./pytorch_pretrained_bert/modeling.py#L916) - BERT Transformer with a sequence classification head on top (BERT Transformer is **pre-trained**, the sequence classification head **is only initialized and has to be trained**),
-  - [`BertForMultipleChoice`](./pytorch_pretrained_bert/modeling.py#L982) - BERT Transformer with a multiple choice head on top (used for task like Swag) (BERT Transformer is **pre-trained**, the multiple choice classification head **is only initialized and has to be trained**),
-  - [`BertForTokenClassification`](./pytorch_pretrained_bert/modeling.py#L1051) - BERT Transformer with a token classification head on top (BERT Transformer is **pre-trained**, the token classification head **is only initialized and has to be trained**),
-  - [`BertForQuestionAnswering`](./pytorch_pretrained_bert/modeling.py#L1124) - BERT Transformer with a token classification head on top (BERT Transformer is **pre-trained**, the token classification head **is only initialized and has to be trained**).
+- Eight **Bert** PyTorch models (`torch.nn.Module`) with pre-trained weights (in the [`modeling.py`](./my_bert/modeling.py) file):
+  - [`BertModel`](./my_bert/modeling.py#L639) - raw BERT Transformer model (**fully pre-trained**),
+  - [`BertForMaskedLM`](./my_bert/modeling.py#L793) - BERT Transformer with the pre-trained masked language modeling head on top (**fully pre-trained**),
+  - [`BertForNextSentencePrediction`](./my_bert/modeling.py#L854) - BERT Transformer with the pre-trained next sentence prediction classifier on top  (**fully pre-trained**),
+  - [`BertForPreTraining`](./my_bert/modeling.py#L722) - BERT Transformer with masked language modeling head and next sentence prediction classifier on top (**fully pre-trained**),
+  - [`BertForSequenceClassification`](./my_bert/modeling.py#L916) - BERT Transformer with a sequence classification head on top (BERT Transformer is **pre-trained**, the sequence classification head **is only initialized and has to be trained**),
+  - [`BertForMultipleChoice`](./my_bert/modeling.py#L982) - BERT Transformer with a multiple choice head on top (used for task like Swag) (BERT Transformer is **pre-trained**, the multiple choice classification head **is only initialized and has to be trained**),
+  - [`BertForTokenClassification`](./my_bert/modeling.py#L1051) - BERT Transformer with a token classification head on top (BERT Transformer is **pre-trained**, the token classification head **is only initialized and has to be trained**),
+  - [`BertForQuestionAnswering`](./my_bert/modeling.py#L1124) - BERT Transformer with a token classification head on top (BERT Transformer is **pre-trained**, the token classification head **is only initialized and has to be trained**).
 
-- Three **OpenAI GPT** PyTorch models (`torch.nn.Module`) with pre-trained weights (in the [`modeling_openai.py`](./pytorch_pretrained_bert/modeling_openai.py) file):
-  - [`OpenAIGPTModel`](./pytorch_pretrained_bert/modeling_openai.py#L536) - raw OpenAI GPT Transformer model (**fully pre-trained**),
-  - [`OpenAIGPTLMHeadModel`](./pytorch_pretrained_bert/modeling_openai.py#L643) - OpenAI GPT Transformer with the tied language modeling head on top (**fully pre-trained**),
-  - [`OpenAIGPTDoubleHeadsModel`](./pytorch_pretrained_bert/modeling_openai.py#L722) - OpenAI GPT Transformer with the tied language modeling head and a multiple choice classification head on top (OpenAI GPT Transformer is **pre-trained**, the multiple choice classification head **is only initialized and has to be trained**),
+- Three **OpenAI GPT** PyTorch models (`torch.nn.Module`) with pre-trained weights (in the [`modeling_openai.py`](./my_bert/modeling_openai.py) file):
+  - [`OpenAIGPTModel`](./my_bert/modeling_openai.py#L536) - raw OpenAI GPT Transformer model (**fully pre-trained**),
+  - [`OpenAIGPTLMHeadModel`](./my_bert/modeling_openai.py#L643) - OpenAI GPT Transformer with the tied language modeling head on top (**fully pre-trained**),
+  - [`OpenAIGPTDoubleHeadsModel`](./my_bert/modeling_openai.py#L722) - OpenAI GPT Transformer with the tied language modeling head and a multiple choice classification head on top (OpenAI GPT Transformer is **pre-trained**, the multiple choice classification head **is only initialized and has to be trained**),
 
-- Two **Transformer-XL** PyTorch models (`torch.nn.Module`) with pre-trained weights (in the [`modeling_transfo_xl.py`](./pytorch_pretrained_bert/modeling_transfo_xl.py) file):
-  - [`TransfoXLModel`](./pytorch_pretrained_bert/modeling_transfo_xl.py#L983) - Transformer-XL model which outputs the last hidden state and memory cells (**fully pre-trained**),
-  - [`TransfoXLLMHeadModel`](./pytorch_pretrained_bert/modeling_transfo_xl.py#L1260) - Transformer-XL with the tied adaptive softmax head on top for language modeling which outputs the logits/loss and memory cells (**fully pre-trained**),
+- Two **Transformer-XL** PyTorch models (`torch.nn.Module`) with pre-trained weights (in the [`modeling_transfo_xl.py`](./my_bert/modeling_transfo_xl.py) file):
+  - [`TransfoXLModel`](./my_bert/modeling_transfo_xl.py#L983) - Transformer-XL model which outputs the last hidden state and memory cells (**fully pre-trained**),
+  - [`TransfoXLLMHeadModel`](./my_bert/modeling_transfo_xl.py#L1260) - Transformer-XL with the tied adaptive softmax head on top for language modeling which outputs the logits/loss and memory cells (**fully pre-trained**),
 
-- Three **OpenAI GPT-2** PyTorch models (`torch.nn.Module`) with pre-trained weights (in the [`modeling_gpt2.py`](./pytorch_pretrained_bert/modeling_gpt2.py) file):
-  - [`GPT2Model`](./pytorch_pretrained_bert/modeling_gpt2.py#L479) - raw OpenAI GPT-2 Transformer model (**fully pre-trained**),
-  - [`GPT2LMHeadModel`](./pytorch_pretrained_bert/modeling_gpt2.py#L559) - OpenAI GPT-2 Transformer with the tied language modeling head on top (**fully pre-trained**),
-  - [`GPT2DoubleHeadsModel`](./pytorch_pretrained_bert/modeling_gpt2.py#L624) - OpenAI GPT-2 Transformer with the tied language modeling head and a multiple choice classification head on top (OpenAI GPT-2 Transformer is **pre-trained**, the multiple choice classification head **is only initialized and has to be trained**),
+- Three **OpenAI GPT-2** PyTorch models (`torch.nn.Module`) with pre-trained weights (in the [`modeling_gpt2.py`](./my_bert/modeling_gpt2.py) file):
+  - [`GPT2Model`](./my_bert/modeling_gpt2.py#L479) - raw OpenAI GPT-2 Transformer model (**fully pre-trained**),
+  - [`GPT2LMHeadModel`](./my_bert/modeling_gpt2.py#L559) - OpenAI GPT-2 Transformer with the tied language modeling head on top (**fully pre-trained**),
+  - [`GPT2DoubleHeadsModel`](./my_bert/modeling_gpt2.py#L624) - OpenAI GPT-2 Transformer with the tied language modeling head and a multiple choice classification head on top (OpenAI GPT-2 Transformer is **pre-trained**, the multiple choice classification head **is only initialized and has to be trained**),
 
-- Tokenizers for **BERT** (using word-piece) (in the [`tokenization.py`](./pytorch_pretrained_bert/tokenization.py) file):
+- Tokenizers for **BERT** (using word-piece) (in the [`tokenization.py`](./my_bert/tokenization.py) file):
   - `BasicTokenizer` - basic tokenization (punctuation splitting, lower casing, etc.),
   - `WordpieceTokenizer` - WordPiece tokenization,
   - `BertTokenizer` - perform end-to-end tokenization, i.e. basic tokenization followed by WordPiece tokenization.
 
-- Tokenizer for **OpenAI GPT** (using Byte-Pair-Encoding) (in the [`tokenization_openai.py`](./pytorch_pretrained_bert/tokenization_openai.py) file):
+- Tokenizer for **OpenAI GPT** (using Byte-Pair-Encoding) (in the [`tokenization_openai.py`](./my_bert/tokenization_openai.py) file):
   - `OpenAIGPTTokenizer` - perform Byte-Pair-Encoding (BPE) tokenization.
 
-- Tokenizer for **Transformer-XL** (word tokens ordered by frequency for adaptive softmax) (in the [`tokenization_transfo_xl.py`](./pytorch_pretrained_bert/tokenization_transfo_xl.py) file):
+- Tokenizer for **Transformer-XL** (word tokens ordered by frequency for adaptive softmax) (in the [`tokenization_transfo_xl.py`](./my_bert/tokenization_transfo_xl.py) file):
   - `OpenAIGPTTokenizer` - perform word tokenization and can order words by frequency in a corpus for use in an adaptive softmax.
 
-- Tokenizer for **OpenAI GPT-2** (using byte-level Byte-Pair-Encoding) (in the [`tokenization_gpt2.py`](./pytorch_pretrained_bert/tokenization_gpt2.py) file):
+- Tokenizer for **OpenAI GPT-2** (using byte-level Byte-Pair-Encoding) (in the [`tokenization_gpt2.py`](./my_bert/tokenization_gpt2.py) file):
   - `GPT2Tokenizer` - perform byte-level Byte-Pair-Encoding (BPE) tokenization.
 
-- Optimizer for **BERT** (in the [`optimization.py`](./pytorch_pretrained_bert/optimization.py) file):
+- Optimizer for **BERT** (in the [`optimization.py`](./my_bert/optimization.py) file):
   - `BertAdam` - Bert version of Adam algorithm with weight decay fix, warmup and linear decay of the learning rate.
 
-- Optimizer for **OpenAI GPT** (in the [`optimization_openai.py`](./pytorch_pretrained_bert/optimization_openai.py) file):
+- Optimizer for **OpenAI GPT** (in the [`optimization_openai.py`](./my_bert/optimization_openai.py) file):
   - `OpenAIAdam` - OpenAI GPT version of Adam algorithm with weight decay fix, warmup and linear decay of the learning rate.
 
-- Configuration classes for BERT, OpenAI GPT and Transformer-XL (in the respective [`modeling.py`](./pytorch_pretrained_bert/modeling.py), [`modeling_openai.py`](./pytorch_pretrained_bert/modeling_openai.py), [`modeling_transfo_xl.py`](./pytorch_pretrained_bert/modeling_transfo_xl.py) files):
+- Configuration classes for BERT, OpenAI GPT and Transformer-XL (in the respective [`modeling.py`](./my_bert/modeling.py), [`modeling_openai.py`](./my_bert/modeling_openai.py), [`modeling_transfo_xl.py`](./my_bert/modeling_transfo_xl.py) files):
   - `BertConfig` - Configuration class to store the configuration of a `BertModel` with utilities to read and write from JSON configuration files.
   - `OpenAIGPTConfig` - Configuration class to store the configuration of a `OpenAIGPTModel` with utilities to read and write from JSON configuration files.
   - `GPT2Config` - Configuration class to store the configuration of a `GPT2Model` with utilities to read and write from JSON configuration files.
@@ -175,7 +175,7 @@ First let's prepare a tokenized input with `BertTokenizer`
 
 ```python
 import torch
-from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM
+from my_bert import BertTokenizer, BertModel, BertForMaskedLM
 
 # OPTIONAL: if you want to have more information on what's happening, activate the logger as follows
 import logging
@@ -252,7 +252,7 @@ First let's prepare a tokenized input with `OpenAIGPTTokenizer`
 
 ```python
 import torch
-from pytorch_pretrained_bert import OpenAIGPTTokenizer, OpenAIGPTModel, OpenAIGPTLMHeadModel
+from my_bert import OpenAIGPTTokenizer, OpenAIGPTModel, OpenAIGPTLMHeadModel
 
 # OPTIONAL: if you want to have more information on what's happening, activate the logger as follows
 import logging
@@ -317,7 +317,7 @@ First let's prepare a tokenized input with `TransfoXLTokenizer`
 
 ```python
 import torch
-from pytorch_pretrained_bert import TransfoXLTokenizer, TransfoXLModel, TransfoXLLMHeadModel
+from my_bert import TransfoXLTokenizer, TransfoXLModel, TransfoXLLMHeadModel
 
 # OPTIONAL: if you want to have more information on what's happening, activate the logger as follows
 import logging
@@ -392,7 +392,7 @@ First let's prepare a tokenized input with `GPT2Tokenizer`
 
 ```python
 import torch
-from pytorch_pretrained_bert import GPT2Tokenizer, GPT2Model, GPT2LMHeadModel
+from my_bert import GPT2Tokenizer, GPT2Model, GPT2LMHeadModel
 
 # OPTIONAL: if you want to have more information on what's happening, activate the logger as follows
 import logging
@@ -500,7 +500,7 @@ where
     - `bert_config.json` or `openai_gpt_config.json` a configuration file for the model, and
     - `pytorch_model.bin` a PyTorch dump of a pre-trained instance of `BertForPreTraining`, `OpenAIGPTModel`, `TransfoXLModel`, `GPT2LMHeadModel` (saved with the usual `torch.save()`)
 
-  If `PRE_TRAINED_MODEL_NAME_OR_PATH` is a shortcut name, the pre-trained weights will be downloaded from AWS S3 (see the links [here](pytorch_pretrained_bert/modeling.py)) and stored in a cache folder to avoid future download (the cache folder can be found at `~/.pytorch_pretrained_bert/`).
+  If `PRE_TRAINED_MODEL_NAME_OR_PATH` is a shortcut name, the pre-trained weights will be downloaded from AWS S3 (see the links [here](my_bert/modeling.py)) and stored in a cache folder to avoid future download (the cache folder can be found at `~/.my_bert/`).
 - `cache_dir` can be an optional path to a specific directory to download and cache the pre-trained model weights. This option is useful in particular when you are using distributed training: to avoid concurrent access to the same weights you can set for example `cache_dir='./pretrained_model_{}'.format(args.local_rank)` (see the section on distributed training for more information).
 
 `Uncased` means that the text has been lowercased before WordPiece tokenization, e.g., `John Smith` becomes `john smith`. The Uncased model also strips out any accent markers. `Cased` means that the true case and accent markers are preserved. Typically, the Uncased model is better unless you know that case information is important for your task (e.g., Named Entity Recognition or Part-of-Speech tagging). For information about the Multilingual and Chinese model, see the [Multilingual README](https://github.com/google-research/bert/blob/master/multilingual.md) or the original TensorFlow repository.
@@ -539,7 +539,7 @@ There are three types of files you need to save to be able to reload a fine-tune
 Here is the recommended way of saving the model, configuration and vocabulary to an `output_dir` directory and reloading the model and tokenizer afterwards:
 
 ```python
-from pytorch_pretrained_bert import WEIGHTS_NAME, CONFIG_NAME
+from my_bert import WEIGHTS_NAME, CONFIG_NAME
 
 output_dir = "./models/"
 
@@ -630,7 +630,7 @@ These configuration classes contains a few utilities to load and save configurat
 The inputs and output are **identical to the TensorFlow model inputs and outputs**.
 
 We detail them here. This model takes as *inputs*:
-[`modeling.py`](./pytorch_pretrained_bert/modeling.py)
+[`modeling.py`](./my_bert/modeling.py)
 - `input_ids`: a torch.LongTensor of shape [batch_size, sequence_length] with the word token indices in the vocabulary (see the tokens preprocessing logic in the scripts [`extract_features.py`](./examples/extract_features.py), [`run_classifier.py`](./examples/run_classifier.py) and [`run_squad.py`](./examples/run_squad.py)), and
 - `token_type_ids`: an optional torch.LongTensor of shape [batch_size, sequence_length] with the token types indices selected in [0, 1]. Type 0 corresponds to a `sentence A` and type 1 corresponds to a `sentence B` token (see BERT paper for more details).
 - `attention_mask`: an optional torch.LongTensor of shape [batch_size, sequence_length] with indices selected in [0, 1]. It's a mask to be used if some input sequence lengths are smaller than the max input sequence length of the current batch. It's the mask that we typically use for attention when a batch has varying length sentences.
@@ -755,7 +755,7 @@ You should use the associate indices to index the embeddings.
 The inputs and output are **identical to the TensorFlow model inputs and outputs**.
 
 We detail them here. This model takes as *inputs*:
-[`modeling_openai.py`](./pytorch_pretrained_bert/modeling_openai.py)
+[`modeling_openai.py`](./my_bert/modeling_openai.py)
 - `input_ids`: a torch.LongTensor of shape [batch_size, sequence_length] (or more generally [d_1, ..., d_n, sequence_length] were d_1 ... d_n are arbitrary dimensions) with the word BPE token indices selected in the range [0, total_tokens_embeddings[
 - `position_ids`: an optional torch.LongTensor with the same shape as input_ids
     with the position indices (selected in the range [0, config.n_positions - 1[.
@@ -807,7 +807,7 @@ Transformer XL use a relative positioning with sinusiodal patterns and adaptive 
 - the tokens in the vocabulary have to be sorted to decreasing frequency.
 
 This model takes as *inputs*:
-[`modeling_transfo_xl.py`](./pytorch_pretrained_bert/modeling_transfo_xl.py)
+[`modeling_transfo_xl.py`](./my_bert/modeling_transfo_xl.py)
 - `input_ids`: a torch.LongTensor of shape [batch_size, sequence_length] with the token indices selected in the range [0, self.config.n_token[
 - `mems`: an optional memory of hidden states from previous forward passes as a list (num layers) of hidden states at the entry of each layer. Each hidden states has shape [self.config.mem_len, bsz, self.config.d_model]. Note that the first two dimensions are transposed in `mems` with regards to `input_ids`.
 
@@ -847,7 +847,7 @@ all_hidden_states = lower_hidden_states + [hidden_states]
 The inputs and output are **identical to the TensorFlow model inputs and outputs**.
 
 We detail them here. This model takes as *inputs*:
-[`modeling_gpt2.py`](./pytorch_pretrained_bert/modeling_gpt2.py)
+[`modeling_gpt2.py`](./my_bert/modeling_gpt2.py)
 - `input_ids`: a torch.LongTensor of shape [batch_size, sequence_length] (or more generally [d_1, ..., d_n, sequence_length] were d_1 ... d_n are arbitrary dimensions) with the word BPE token indices selected in the range [0, vocab_size[
 - `position_ids`: an optional torch.LongTensor with the same shape as input_ids
     with the position indices (selected in the range [0, config.n_positions - 1[.
@@ -914,7 +914,7 @@ and three methods:
 - `convert_ids_to_tokens(tokens)`: convert a list of `int` indices in a list of `str` tokens in the vocabulary.
 - `save_vocabulary(directory_path)`: save the vocabulary file to `directory_path`. Return the path to the saved vocabulary file: `vocab_file_path`. The vocabulary can be reloaded with `BertTokenizer.from_pretrained('vocab_file_path')` or `BertTokenizer.from_pretrained('directory_path')`.
 
-Please refer to the doc strings and code in [`tokenization.py`](./pytorch_pretrained_bert/tokenization.py) for the details of the `BasicTokenizer` and `WordpieceTokenizer` classes. In general it is recommended to use `BertTokenizer` unless you know what you are doing.
+Please refer to the doc strings and code in [`tokenization.py`](./my_bert/tokenization.py) for the details of the `BasicTokenizer` and `WordpieceTokenizer` classes. In general it is recommended to use `BertTokenizer` unless you know what you are doing.
 
 #### `OpenAIGPTTokenizer`
 
@@ -937,7 +937,7 @@ and five methods:
 - `decode(ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)`: decode a list of `int` indices in a string and do some post-processing if needed: (i) remove special tokens from the output and (ii) clean up tokenization spaces.
 - `save_vocabulary(directory_path)`: save the vocabulary, merge and special tokens files to `directory_path`. Return the path to the three files: `vocab_file_path`, `merge_file_path`, `special_tokens_file_path`. The vocabulary can be reloaded with `OpenAIGPTTokenizer.from_pretrained('directory_path')`.
 
-Please refer to the doc strings and code in [`tokenization_openai.py`](./pytorch_pretrained_bert/tokenization_openai.py) for the details of the `OpenAIGPTTokenizer`.
+Please refer to the doc strings and code in [`tokenization_openai.py`](./my_bert/tokenization_openai.py) for the details of the `OpenAIGPTTokenizer`.
 
 #### `TransfoXLTokenizer`
 
@@ -945,7 +945,7 @@ Please refer to the doc strings and code in [`tokenization_openai.py`](./pytorch
 
 The API is similar to the API of `BertTokenizer` (see above).
 
-Please refer to the doc strings and code in [`tokenization_transfo_xl.py`](./pytorch_pretrained_bert/tokenization_transfo_xl.py) for the details of these additional methods in `TransfoXLTokenizer`.
+Please refer to the doc strings and code in [`tokenization_transfo_xl.py`](./my_bert/tokenization_transfo_xl.py) for the details of these additional methods in `TransfoXLTokenizer`.
 
 #### `GPT2Tokenizer`
 
@@ -967,7 +967,7 @@ and two methods:
 - `decode(tokens)`: convert back a list of `int` tokens in a `str`.
 - `save_vocabulary(directory_path)`: save the vocabulary, merge and special tokens files to `directory_path`. Return the path to the three files: `vocab_file_path`, `merge_file_path`, `special_tokens_file_path`. The vocabulary can be reloaded with `OpenAIGPTTokenizer.from_pretrained('directory_path')`.
 
-Please refer to [`tokenization_gpt2.py`](./pytorch_pretrained_bert/tokenization_gpt2.py) for more details on the `GPT2Tokenizer`.
+Please refer to [`tokenization_gpt2.py`](./my_bert/tokenization_gpt2.py) for more details on the `GPT2Tokenizer`.
 
 ### Optimizers
 
@@ -1372,7 +1372,7 @@ A command-line interface is provided to convert a TensorFlow checkpoint in a PyT
 
 ### BERT
 
-You can convert any TensorFlow checkpoint for BERT (in particular [the pre-trained models released by Google](https://github.com/google-research/bert#pre-trained-models)) in a PyTorch save file by using the [`convert_tf_checkpoint_to_pytorch.py`](./pytorch_pretrained_bert/convert_tf_checkpoint_to_pytorch.py ) script.
+You can convert any TensorFlow checkpoint for BERT (in particular [the pre-trained models released by Google](https://github.com/google-research/bert#pre-trained-models)) in a PyTorch save file by using the [`convert_tf_checkpoint_to_pytorch.py`](./my_bert/convert_tf_checkpoint_to_pytorch.py ) script.
 
 This CLI takes as input a TensorFlow checkpoint (three files starting with `bert_model.ckpt`) and the associated configuration file (`bert_config.json`), and creates a PyTorch model for this configuration, loads the weights from the TensorFlow checkpoint in the PyTorch model and saves the resulting model in a standard PyTorch save file that can be imported using `torch.load()` (see examples in [`extract_features.py`](./examples/extract_features.py), [`run_classifier.py`](./examples/run_classifier.py) and [`run_squad.py`](./examples/run_squad.py)).
 
@@ -1385,7 +1385,7 @@ Here is an example of the conversion process for a pre-trained `BERT-Base Uncase
 ```shell
 export BERT_BASE_DIR=/path/to/bert/uncased_L-12_H-768_A-12
 
-pytorch_pretrained_bert convert_tf_checkpoint_to_pytorch \
+my_bert convert_tf_checkpoint_to_pytorch \
   $BERT_BASE_DIR/bert_model.ckpt \
   $BERT_BASE_DIR/bert_config.json \
   $BERT_BASE_DIR/pytorch_model.bin
@@ -1400,7 +1400,7 @@ Here is an example of the conversion process for a pre-trained OpenAI GPT model,
 ```shell
 export OPENAI_GPT_CHECKPOINT_FOLDER_PATH=/path/to/openai/pretrained/numpy/weights
 
-pytorch_pretrained_bert convert_openai_checkpoint \
+my_bert convert_openai_checkpoint \
   $OPENAI_GPT_CHECKPOINT_FOLDER_PATH \
   $PYTORCH_DUMP_OUTPUT \
   [OPENAI_GPT_CONFIG]
@@ -1413,7 +1413,7 @@ Here is an example of the conversion process for a pre-trained Transformer-XL mo
 ```shell
 export TRANSFO_XL_CHECKPOINT_FOLDER_PATH=/path/to/transfo/xl/checkpoint
 
-pytorch_pretrained_bert convert_transfo_xl_checkpoint \
+my_bert convert_transfo_xl_checkpoint \
   $TRANSFO_XL_CHECKPOINT_FOLDER_PATH \
   $PYTORCH_DUMP_OUTPUT \
   [TRANSFO_XL_CONFIG]
@@ -1426,7 +1426,7 @@ Here is an example of the conversion process for a pre-trained OpenAI's GPT-2 mo
 ```shell
 export GPT2_DIR=/path/to/gpt2/checkpoint
 
-pytorch_pretrained_bert convert_gpt2_checkpoint \
+my_bert convert_gpt2_checkpoint \
   $GPT2_DIR/model.ckpt \
   $PYTORCH_DUMP_OUTPUT \
   [GPT2_CONFIG]

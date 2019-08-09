@@ -34,10 +34,10 @@ from tqdm import tqdm, trange
 
 from torch.nn import CrossEntropyLoss, MSELoss
 
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE, WEIGHTS_NAME, CONFIG_NAME, CONTROLLER_WEIGHTS_NAME, WEIGHTS_CPT_NAME, CONTROLLER_WEIGHTS_CPT_NAME
-from pytorch_pretrained_bert.modeling import BertForSequenceClassification, BertConfig
-from pytorch_pretrained_bert.tokenization import BertTokenizer, SimpleTokenizer
-from pytorch_pretrained_bert.optimization import BertAdam, WarmupLinearSchedule
+from my_bert.file_utils import my_bert_CACHE, WEIGHTS_NAME, CONFIG_NAME, CONTROLLER_WEIGHTS_NAME, WEIGHTS_CPT_NAME, CONTROLLER_WEIGHTS_CPT_NAME
+from my_bert.modeling import BertForSequenceClassification, BertConfig
+from my_bert.tokenization import BertTokenizer, SimpleTokenizer
+from my_bert.optimization import BertAdam, WarmupLinearSchedule
 
 from simple_models import SimpleSequenceClassification
 
@@ -457,21 +457,21 @@ def main():
             logger.info("BASELINE_ACC on epoch {}: {}".format(epoch_idx, val_metrics["acc"]))
             #train_examples = train_examples[:96]
 
-            #for debug_i in range(5):
-            #    random.seed(debug_i)
-            #    np.random.seed(debug_i)
-            #    torch.manual_seed(debug_i)
+            for debug_i in range(5):
+                random.seed(debug_i)
+                np.random.seed(debug_i)
+                torch.manual_seed(debug_i)
 #
 #                #random.seed(0)
 #                #np.random.seed(0)
 #                #torch.manual_seed(0)
-#                trainer_main.reset_model()
-#                trainer_main.build_dataloader_and_optimizer(train_examples)
-#                trainer_main.train(train_examples)
-#                val_metrics = trainer_main.eval(val_examples)
-#                logger.info("BASELINE_ACC on epoch {}: {}".format(epoch_idx, val_metrics["acc"]))
+                trainer_main.reset_model()
+                trainer_main.build_dataloader_and_optimizer(train_examples)
+                trainer_main.train(train_examples)
+                val_metrics = trainer_main.eval(val_examples)
+                logger.info("BASELINE_ACC on epoch {}: {}".format(epoch_idx, val_metrics["acc"]))
 
-            #exit()
+            exit()
 
 
         aug_policy, log_probs, entropies = trainer_controller.get_policy(with_details=True)

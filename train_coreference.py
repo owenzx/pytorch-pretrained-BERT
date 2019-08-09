@@ -34,10 +34,10 @@ from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE, WEIGHTS_NAME, CONFIG_NAME
-from pytorch_pretrained_bert.modeling import BertForQuestionAnswering, BertConfig, BertForCoreference
-from pytorch_pretrained_bert.optimization import BertAdam, WarmupLinearSchedule
-from pytorch_pretrained_bert.tokenization import (BasicTokenizer,
+from my_bert.file_utils import my_bert_CACHE, WEIGHTS_NAME, CONFIG_NAME
+from my_bert.modeling import BertForQuestionAnswering, BertConfig, BertForCoreference
+from my_bert.optimization import BertAdam, WarmupLinearSchedule
+from my_bert.tokenization import (BasicTokenizer,
                                                   BertTokenizer,
                                                   whitespace_tokenize)
 
@@ -56,79 +56,10 @@ logger = logging.getLogger(__name__)
 def simple_accuracy(preds, labels):
     return (preds == labels).mean()
 
-class SquadExample(object):
-    """
-    A single training/test example for the Squad dataset.
-    For examples without an answer, the start and end position are -1.
-    """
-
-    def __init__(self,
-                 qas_id,
-                 question_text,
-                 doc_tokens,
-                 orig_answer_text=None,
-                 start_position=None,
-                 end_position=None,
-                 is_impossible=None):
-        self.qas_id = qas_id
-        self.question_text = question_text
-        self.doc_tokens = doc_tokens
-        self.orig_answer_text = orig_answer_text
-        self.start_position = start_position
-        self.end_position = end_position
-        self.is_impossible = is_impossible
-
-    def __str__(self):
-        return self.__repr__()
-
-    def __repr__(self):
-        s = ""
-        s += "qas_id: %s" % (self.qas_id)
-        s += ", question_text: %s" % (
-            self.question_text)
-        s += ", doc_tokens: [%s]" % (" ".join(self.doc_tokens))
-        if self.start_position:
-            s += ", start_position: %d" % (self.start_position)
-        if self.end_position:
-            s += ", end_position: %d" % (self.end_position)
-        if self.is_impossible:
-            s += ", is_impossible: %r" % (self.is_impossible)
-        return s
-
-
-class InputFeatures(object):
-    """A single set of features of data."""
-
-    def __init__(self,
-                 unique_id,
-                 example_index,
-                 doc_span_index,
-                 tokens,
-                 token_to_orig_map,
-                 token_is_max_context,
-                 input_ids,
-                 input_mask,
-                 segment_ids,
-                 start_position=None,
-                 end_position=None,
-                 is_impossible=None):
-        self.unique_id = unique_id
-        self.example_index = example_index
-        self.doc_span_index = doc_span_index
-        self.tokens = tokens
-        self.token_to_orig_map = token_to_orig_map
-        self.token_is_max_context = token_is_max_context
-        self.input_ids = input_ids
-        self.input_mask = input_mask
-        self.segment_ids = segment_ids
-        self.start_position = start_position
-        self.end_position = end_position
-        self.is_impossible = is_impossible
-
-
 class CorefInputFeatures(object):
 
     def __init__(self,
+                 unique_id,
                  input_ids,
                  input_mask,
                  segment_ids,
@@ -141,12 +72,13 @@ class CorefInputFeatures(object):
                  span2_l_position,
                  span2_r_position
                  ):
+        self.unique_id = unique_id
         self.input_ids = input_ids
         self.tokens = tokens
         self.tok_to_orig_index = tok_to_orig_index
         self.input_mask = input_mask
         self.segment_ids = segment_ids
-        self.lable_id = label_id
+        self.label_id = label_id
         self.example_index = example_index
         self.span1_l_position = span1_l_position
         self.span1_r_position = span1_r_position
@@ -167,7 +99,7 @@ def read_ontonotes_examples(input_file):
             continue
 
         for target_id, target in enumerate(raw_example["targets"]):
-            guid = raw_example["document_id"] + "_" + str(raw_example["sentence_id"]) + "_" + str(target_id)
+            guid = raw_example["info"]["document_id"] + "_" + str(raw_example["info"]["sentence_id"]) + "_" + str(target_id)
 
             text_a = raw_example["text"]
 
@@ -181,7 +113,16 @@ def read_ontonotes_examples(input_file):
             example = CorefExample(guid, text_a, text_tokens, span1_l, span1_r, span2_l, span2_r, label)
             examples.append(example)
 
-        return examples
+    return examples
+
+
+def write_predictions(out_path, pred_dicts):
+    with open(out_path, 'w') as fw:
+        for p_dict in pred_dicts:
+            if type(p_dict) is not dict:
+                p_dict = p_dict._asdict()
+            fw.write(json.dumps(p_dict))
+            fw.write('\n')
 
 
 def convert_examples_to_features(examples, tokenizer, max_seq_length):
@@ -193,20 +134,21 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length):
     for (example_index, example) in enumerate(examples):
         #text_tokens = tokenizer.tokenize(example.text_a)
 
-
+        unique_id = example.guid
         tok_to_orig_index = []
         orig_to_tok_index = []
         all_tokens = []
         for (i, token) in enumerate(example.text_tokens):
             orig_to_tok_index.append(len(all_tokens))
-            sub_tokens = tokenizer.tokenize((token))
+            sub_tokens = tokenizer.tokenize(token)
             for sub_token in sub_tokens:
                 tok_to_orig_index.append(i)
                 all_tokens.append(sub_token)
+        #TODO check boundary
         span1_l_position = orig_to_tok_index[example.span1_l]
-        span1_r_position = orig_to_tok_index[example.span1_r]
+        span1_r_position = orig_to_tok_index[example.span1_r-1]+1
         span2_l_position = orig_to_tok_index[example.span2_l]
-        span2_r_position = orig_to_tok_index[example.span2_r]
+        span2_r_position = orig_to_tok_index[example.span2_r-1]+1
 
 
         tokens = ["[CLS]"] + all_tokens + ["[SEP]"]
@@ -233,7 +175,8 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length):
         label_id = label_map[example.label]
 
         features.append(
-            CorefInputFeatures(input_ids=input_ids,
+            CorefInputFeatures(unique_id = unique_id,
+                          input_ids=input_ids,
                           input_mask=input_mask,
                           segment_ids=segment_ids,
                           label_id=label_id,
@@ -241,7 +184,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length):
                           tokens = all_tokens,
                           tok_to_orig_index = tok_to_orig_index,
                           span1_l_position=span1_l_position,
-                          span1_r_postiion=span1_r_position,
+                          span1_r_position=span1_r_position,
                           span2_l_position=span2_l_position,
                           span2_r_position=span2_r_position)
         )
@@ -252,9 +195,9 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length):
 #RawResult = collections.namedtuple("RawResult",
 #                                   ["unique_id", "start_logits", "end_logits"])
 
-RawResult = collections.namedtuple("RawResult", ["unique_id", "pred"])
+RawResult = collections.namedtuple("RawResult", ["unique_id", "pred", "is_correct"])
 
-def eval_model(model, num_labels, eval_dataloader, eval_features, device, args):
+def eval_model(model, num_labels, eval_dataloader, eval_features, device, n_gpu, args, write_predicstions=False):
     all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.long)
     model.eval()
     eval_loss = 0
@@ -263,7 +206,7 @@ def eval_model(model, num_labels, eval_dataloader, eval_features, device, args):
     preds = []
     logger.info("Start evaluating")
     for step, batch in enumerate(tqdm(eval_dataloader, desc="Evaluating", disable=args.local_rank not in [-1, 0])):
-        if args.n_gpu == 1:
+        if n_gpu == 1:
             batch = tuple(t.to(device) for t in batch)
         input_ids, input_mask, segment_ids, example_indices, label_ids, span1_l_positions, span1_r_positions, span2_l_positions, span2_r_positions = batch
     #for input_ids, input_mask, segment_ids, example_indices, label_ids, span1_l_positions, span1_r_positions, span2_l_positions, span2_r_positions in tqdm(eval_dataloader, desc="Evaluating", disable=args.local_rank not in [-1, 0]):
@@ -274,28 +217,55 @@ def eval_model(model, num_labels, eval_dataloader, eval_features, device, args):
         #segment_ids = segment_ids.to(device)
         #label_ids = label_ids.to(device)
         with torch.no_grad():
-            logits = model(input_ids, segment_ids, span1_l_positions, span1_r_positions, span2_l_positions, span2_r_positions)
+            _, logits = model(input_ids, segment_ids, input_mask, label_ids, span1_l_positions, span1_r_positions, span2_l_positions, span2_r_positions)
         loss_fct = CrossEntropyLoss()
         tmp_eval_loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
         eval_loss += tmp_eval_loss.mean().item()
         nb_eval_steps += 1
-        if len(logits) == 0:
+        if len(preds) == 0:
             preds.append(logits.detach().cpu().numpy())
         else:
             preds[0] = np.append(preds[0], logits.detach().cpu().numpy(), axis=0)
 
-        eval_loss = eval_loss / nb_eval_steps
-        preds = preds[0]
-        preds = np.argmax(preds, axis=1)
-        result = {"acc": simple_accuracy(preds, all_label_ids.numpy())}
-        result['eval_loss'] = eval_loss
 
         for i, example_index in enumerate(example_indices):
-            logits_i = logits[i].detach().cpu().tolist()
+            logits_i = logits[i].detach().cpu()
+            pred_i = int(np.argmax(logits_i))
+            #logits_i = logits_i.tolist()
+            #pred_i = int(preds[i])
+            label_i = int(label_ids[i].detach().cpu())
+            is_correct = (pred_i == label_i)
+
             eval_feature = eval_features[example_index.item()]
-            unique_id = int(eval_feature.unique_id)
+            unique_id = eval_feature.unique_id
             all_results.append(RawResult(unique_id=unique_id,
-                                         pred=logits_i))
+                                         pred=pred_i,
+                                         is_correct=is_correct))
+
+    eval_loss = eval_loss / nb_eval_steps
+    preds = preds[0]
+    preds = np.argmax(preds, axis=1)
+    #print(preds.shape)
+    #print(all_label_ids.numpy().shape)
+    #exit()
+    all_labels = all_label_ids.numpy()
+    result = {"acc": simple_accuracy(preds, all_labels)}
+    result['eval_loss'] = eval_loss
+    #
+    #
+    # for i, example_index in enumerate(example_indices):
+    #     #logits_i = logits[i].detach().cpu()
+    #     #pred_i = np.argmax(logits_i)
+    #     #logits_i = logits_i.tolist()
+    #     pred_i = int(preds[i])
+    #     label_i = int(all_labels[i])
+    #     is_correct = (pred_i == label_i)
+    #
+    #     eval_feature = eval_features[example_index.item()]
+    #     unique_id = eval_feature.unique_id
+    #     all_results.append(RawResult(unique_id=unique_id,
+    #                                  pred=pred_i,
+    #                                  is_correct=is_correct))
 
     output_eval_file = os.path.join(args.output_dir, "eval_results.txt")
     with open(output_eval_file, "w") as writer:
@@ -304,10 +274,23 @@ def eval_model(model, num_labels, eval_dataloader, eval_features, device, args):
             logger.info("  %s = %s", key, str(result[key]))
             writer.write("%s = %s\n" % (key, str(result[key])))
 
-        output_prediction_file = os.path.join(args.output_dir, "predictions.json")
-        #write_predictions(...)
+        if write_predicstions:
+            output_prediction_file = os.path.join(args.output_dir, "predictions.json")
+            write_predictions(output_prediction_file, all_results)
     model.train()
     return result
+
+
+
+def save_model(model, tokenizer, save_dir):
+    model_to_save = model.module if hasattr(model, 'module') else model
+    output_model_file = os.path.join(save_dir, WEIGHTS_NAME)
+    output_config_file = os.path.join(save_dir, CONFIG_NAME)
+
+    torch.save(model_to_save.state_dict(), output_model_file)
+    model_to_save.config.to_json_file(output_config_file)
+    tokenizer.save_vocabulary(save_dir)
+
 
 
 
@@ -389,9 +372,12 @@ def main():
     parser.add_argument('--server_port', type=str, default='', help="Can be used for distant debugging.")
 
     parser.add_argument('--freeze_bert', default=False, action='store_true', help='If true, freeze bert when training')
+    parser.add_argument('--save_predictions', default=False, action='store_true', help='If true, save prediction on valid data')
+
+    parser.add_argument('--save_iter', default=-1, type=int, help='if not -1, then save model every save_iter iters')
 
 
-    parser.add_argument('--lr', default=0.0001, type=float)
+    #parser.add_argument('--lr', default=0.0001, type=float)
 
     args = parser.parse_args()
     print(args)
@@ -455,7 +441,7 @@ def main():
     train_examples = None
     num_train_optimization_steps = None
     if args.do_train:
-        train_examples = read_ontonotes_examples(input_file=args.train_file, is_training=True)
+        train_examples = read_ontonotes_examples(input_file=args.train_file)
         # train_examples = read_squad_examples(
         #     input_file=args.train_file, is_training=True, version_2_with_negative=args.version_2_with_negative)
         num_train_optimization_steps = int(
@@ -464,9 +450,9 @@ def main():
             num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
     # Prepare model
-    model = BertForCoreference.from_pretrained(args.bert_model, cache=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(args.local_rank)))
+    model = BertForCoreference.from_pretrained(args.bert_model, cache_dir=os.path.join(str(my_bert_CACHE), 'distributed_{}'.format(args.local_rank)))
     # model = BertForQuestionAnswering.from_pretrained(args.bert_model,
-    #             cache_dir=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(args.local_rank)))
+    #             cache_dir=os.path.join(str(my_bert_CACHE), 'distributed_{}'.format(args.local_rank)))
 
     if args.fp16:
         model.half()
@@ -513,56 +499,58 @@ def main():
             warmup_linear = WarmupLinearSchedule(warmup=args.warmup_proportion,
                                                  t_total=num_train_optimization_steps)
         else:
-            # optimizer = BertAdam(optimizer_grouped_parameters,
-            #                      lr=args.learning_rate,
-            #                      warmup=args.warmup_proportion,
-            #                      t_total=num_train_optimization_steps)
-            optimizer = torch.optim.Adam(optimizer_grouped_parameters, lr = args.lr)
+            if args.freeze_bert:
+                optimizer = torch.optim.Adam(optimizer_grouped_parameters, lr = args.learning_rate)
+            else:
+                optimizer = BertAdam(optimizer_grouped_parameters,
+                                     lr=args.learning_rate,
+                                     warmup=args.warmup_proportion,
+                                     t_total=num_train_optimization_steps)
 
     global_step = 0
 
     # Prepare train & eval data
-    cached_train_features_file = args.train_file+'_{0}_{1}_{2}_{3}'.format(
-            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_seq_length), str(args.doc_stride), str(args.max_query_length))
-    train_features = None
-    try:
-        with open(cached_train_features_file, "rb") as reader:
-            train_features = pickle.load(reader)
-    except:
-        train_features = convert_examples_to_features(
-            examples=train_examples,
-            tokenizer=tokenizer,
-            max_seq_length=args.max_seq_length,
-            doc_stride=args.doc_stride,
-            max_query_length=args.max_query_length,
-            is_training=True)
-        if args.local_rank == -1 or torch.distributed.get_rank() == 0:
-            logger.info("  Saving train features into cached file %s", cached_train_features_file)
-            with open(cached_train_features_file, "wb") as writer:
-                pickle.dump(train_features, writer)
-    logger.info("***** Training Data *****")
-    logger.info("  Num orig examples = %d", len(train_examples))
-    logger.info("  Num split examples = %d", len(train_features))
-    logger.info("  Batch size = %d", args.train_batch_size)
-    logger.info("  Num steps = %d", num_train_optimization_steps)
-    all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
-    all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
-    all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
-    all_span1_l_positions = torch.tensor([f.span1_l_position for f in train_features], dtype=torch.long)
-    all_span1_r_positions = torch.tensor([f.span1_r_position for f in train_features], dtype=torch.long)
-    all_span2_l_positions = torch.tensor([f.span2_l_position for f in train_features], dtype=torch.long)
-    all_span2_r_positions = torch.tensor([f.span2_r_position for f in train_features], dtype=torch.long)
-    train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
-                               all_span1_l_positions, all_span1_r_positions, all_span2_l_positions, all_span2_r_positions)
-    if args.local_rank == -1:
-        train_sampler = RandomSampler(train_data)
-    else:
-        train_sampler = DistributedSampler(train_data)
-    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
+    if args.do_train:
+        cached_train_features_file = args.train_file+'_{0}_{1}_{2}_{3}'.format(
+                list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_seq_length), str(args.doc_stride), str(args.max_query_length))
+        train_features = None
+        try:
+            with open(cached_train_features_file, "rb") as reader:
+                train_features = pickle.load(reader)
+        except:
+            train_features = convert_examples_to_features(
+                examples=train_examples,
+                tokenizer=tokenizer,
+                max_seq_length=args.max_seq_length)
+            if args.local_rank == -1 or torch.distributed.get_rank() == 0:
+                logger.info("  Saving train features into cached file %s", cached_train_features_file)
+                with open(cached_train_features_file, "wb") as writer:
+                    pickle.dump(train_features, writer)
+        logger.info("***** Training Data *****")
+        logger.info("  Num orig examples = %d", len(train_examples))
+        logger.info("  Num split examples = %d", len(train_features))
+        logger.info("  Batch size = %d", args.train_batch_size)
+        logger.info("  Num steps = %d", num_train_optimization_steps)
+        all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
+        all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
+        all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
+        all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+        all_span1_l_positions = torch.tensor([f.span1_l_position for f in train_features], dtype=torch.long)
+        all_span1_r_positions = torch.tensor([f.span1_r_position for f in train_features], dtype=torch.long)
+        all_span2_l_positions = torch.tensor([f.span2_l_position for f in train_features], dtype=torch.long)
+        all_span2_r_positions = torch.tensor([f.span2_r_position for f in train_features], dtype=torch.long)
+        all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
+        train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index, all_label_ids,
+                                   all_span1_l_positions, all_span1_r_positions, all_span2_l_positions, all_span2_r_positions)
+        if args.local_rank == -1:
+            train_sampler = RandomSampler(train_data)
+        else:
+            train_sampler = DistributedSampler(train_data)
+        train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
 
     #Preparing evaluation data
     eval_examples = read_ontonotes_examples(
-        input_file=args.predict_file, is_training=False)
+        input_file=args.predict_file)
     eval_features = convert_examples_to_features(
         examples=eval_examples,
         tokenizer=tokenizer,
@@ -576,12 +564,22 @@ def main():
     all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
     all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
     all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
-    all_label_ids = torch.tensor([f.lable_id for f in eval_features], dtype=torch.long)
-    all_span1_l_positions = torch.tensor([f.span1_l_position for f in train_features], dtype=torch.long)
-    all_span1_r_positions = torch.tensor([f.span1_r_position for f in train_features], dtype=torch.long)
-    all_span2_l_positions = torch.tensor([f.span2_l_position for f in train_features], dtype=torch.long)
-    all_span2_r_positions = torch.tensor([f.span2_r_position for f in train_features], dtype=torch.long)
+    all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.long)
+    all_span1_l_positions = torch.tensor([f.span1_l_position for f in eval_features], dtype=torch.long)
+    all_span1_r_positions = torch.tensor([f.span1_r_position for f in eval_features], dtype=torch.long)
+    all_span2_l_positions = torch.tensor([f.span2_l_position for f in eval_features], dtype=torch.long)
+    all_span2_r_positions = torch.tensor([f.span2_r_position for f in eval_features], dtype=torch.long)
     all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
+    # print(all_input_ids.shape)
+    # print(all_input_mask.shape)
+    # print(all_segment_ids.shape)
+    # print(all_label_ids.shape)
+    # print(all_span1_l_positions.shape)
+    # print(all_span1_r_positions.shape)
+    # print(all_span2_l_positions.shape)
+    # print(all_span2_r_positions.shape)
+    # print(all_example_index.shape)
+    # exit()
     eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index, all_label_ids, all_span1_l_positions, all_span1_r_positions, all_span2_l_positions, all_span2_r_positions)
     # Run prediction for full data
     eval_sampler = SequentialSampler(eval_data)
@@ -590,17 +588,16 @@ def main():
 
 
     if args.do_train:
-
         model.train()
         for _ in trange(int(args.num_train_epochs), desc="Epoch"):
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])):
                 if n_gpu == 1:
                     batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
-                input_ids, input_mask, segment_ids, span1_l_positions, span1_r_positions, span2_l_positions, span2_r_positions = batch
+                input_ids, input_mask, segment_ids, example_index,  label_ids, span1_l_positions, span1_r_positions, span2_l_positions, span2_r_positions = batch
                 if args.freeze_bert:
-                    loss = model(input_ids, segment_ids, input_mask, span1_l_positions, span1_r_positions, span2_l_positions, span2_r_positions, detach_bert=True)
+                    loss, _ = model(input_ids, segment_ids, input_mask, label_ids, span1_l_positions, span1_r_positions, span2_l_positions, span2_r_positions, detach_bert=True)
                 else:
-                    loss = model(input_ids, segment_ids, input_mask, span1_l_positions, span1_r_positions, span2_l_positions, span2_r_positions, detach_bert=False)
+                    loss, _ = model(input_ids, segment_ids, input_mask, label_ids, span1_l_positions, span1_r_positions, span2_l_positions, span2_r_positions, detach_bert=False)
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
                 if args.gradient_accumulation_steps > 1:
@@ -620,6 +617,22 @@ def main():
                     optimizer.step()
                     optimizer.zero_grad()
                     global_step += 1
+
+                if args.save_iter != -1  and (global_step % args.save_iter == 0):
+                    if args.output_dir[-1] == '/':
+                        save_dir = args.output_dir[:-1] + '_int_%d'%global_step
+                    else:
+                        save_dir = args.output_dir + '_int_%d'%global_step
+                    if not os.path.exists(save_dir):
+                        os.makedirs(save_dir)
+                    save_model(model, tokenizer, save_dir)
+
+                    val_results = eval_model(model, num_labels=num_labels, device=device, eval_dataloader=eval_dataloader, args=args, eval_features=eval_features, n_gpu=n_gpu, write_predicstions=False)
+
+                    logger.info('**********Val results at step %d: '%step + str(val_results['acc']))
+
+
+
 
     if args.do_train and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
         # Save a trained model, configuration and tokenizer
@@ -645,7 +658,7 @@ def main():
     # Start final evaluation
     if args.do_predict and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
         #TODO replace read_squad_examples
-       eval_model(model, num_labels=num_labels, device=device, eval_dataloader=eval_dataloader, args=args, eval_features=eval_features)
+       eval_model(model, num_labels=num_labels, device=device, eval_dataloader=eval_dataloader, args=args, eval_features=eval_features, n_gpu=n_gpu, write_predicstions=args.save_predictions)
 
 
 

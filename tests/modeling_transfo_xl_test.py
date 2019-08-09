@@ -25,8 +25,8 @@ import pytest
 
 import torch
 
-from pytorch_pretrained_bert import (TransfoXLConfig, TransfoXLModel, TransfoXLLMHeadModel)
-from pytorch_pretrained_bert.modeling_transfo_xl import PRETRAINED_MODEL_ARCHIVE_MAP
+from my_bert import (TransfoXLConfig, TransfoXLModel, TransfoXLLMHeadModel)
+from my_bert.modeling_transfo_xl import PRETRAINED_MODEL_ARCHIVE_MAP
 
 class TransfoXLModelTest(unittest.TestCase):
     class TransfoXLModelTester(object):
@@ -199,7 +199,7 @@ class TransfoXLModelTest(unittest.TestCase):
 
     @pytest.mark.slow
     def test_model_from_pretrained(self):
-        cache_dir = "/tmp/pytorch_pretrained_bert_test/"
+        cache_dir = "/tmp/my_bert_test/"
         for model_name in list(PRETRAINED_MODEL_ARCHIVE_MAP.keys())[:1]:
             model = TransfoXLModel.from_pretrained(model_name, cache_dir=cache_dir)
             shutil.rmtree(cache_dir)

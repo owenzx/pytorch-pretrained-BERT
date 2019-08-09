@@ -20,7 +20,7 @@ from io import open
 import shutil
 import pytest
 
-from pytorch_pretrained_bert.tokenization import (BasicTokenizer,
+from my_bert.tokenization import (BasicTokenizer,
                                                   BertTokenizer,
                                                   WordpieceTokenizer,
                                                   _is_control, _is_punctuation,
@@ -60,7 +60,7 @@ class TokenizationTest(unittest.TestCase):
 
     @pytest.mark.slow
     def test_tokenizer_from_pretrained(self):
-        cache_dir = "/tmp/pytorch_pretrained_bert_test/"
+        cache_dir = "/tmp/my_bert_test/"
         for model_name in list(PRETRAINED_VOCAB_ARCHIVE_MAP.keys())[:1]:
             tokenizer = BertTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
             shutil.rmtree(cache_dir)

@@ -25,9 +25,9 @@ import pytest
 
 import torch
 
-from pytorch_pretrained_bert import (GPT2Config, GPT2Model,
+from my_bert import (GPT2Config, GPT2Model,
                                      GPT2LMHeadModel, GPT2DoubleHeadsModel)
-from pytorch_pretrained_bert.modeling_gpt2 import PRETRAINED_MODEL_ARCHIVE_MAP
+from my_bert.modeling_gpt2 import PRETRAINED_MODEL_ARCHIVE_MAP
 
 class GPT2ModelTest(unittest.TestCase):
     class GPT2ModelTester(object):
@@ -189,7 +189,7 @@ class GPT2ModelTest(unittest.TestCase):
 
     @pytest.mark.slow
     def test_model_from_pretrained(self):
-        cache_dir = "/tmp/pytorch_pretrained_bert_test/"
+        cache_dir = "/tmp/my_bert_test/"
         for model_name in list(PRETRAINED_MODEL_ARCHIVE_MAP.keys())[:1]:
             model = GPT2Model.from_pretrained(model_name, cache_dir=cache_dir)
             shutil.rmtree(cache_dir)

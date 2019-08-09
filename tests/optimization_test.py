@@ -20,9 +20,9 @@ import unittest
 
 import torch
 
-from pytorch_pretrained_bert import BertAdam
-from pytorch_pretrained_bert import OpenAIAdam
-from pytorch_pretrained_bert.optimization import ConstantLR, WarmupLinearSchedule, WarmupConstantSchedule, \
+from my_bert import BertAdam
+from my_bert import OpenAIAdam
+from my_bert.optimization import ConstantLR, WarmupLinearSchedule, WarmupConstantSchedule, \
     WarmupCosineWithWarmupRestartsSchedule, WarmupCosineWithHardRestartsSchedule, WarmupCosineSchedule
 import numpy as np
 

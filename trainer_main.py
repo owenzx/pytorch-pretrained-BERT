@@ -7,10 +7,10 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn import CrossEntropyLoss, MSELoss
 from torch.nn import functional as F
 import json
-from pytorch_pretrained_bert.optimization import BertAdam, WarmupLinearSchedule
-from pytorch_pretrained_bert.tokenization import BertTokenizer, SimpleTokenizer
-from pytorch_pretrained_bert.modeling import BertForSequenceClassification, BertConfig
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE, WEIGHTS_NAME, CONFIG_NAME
+from my_bert.optimization import BertAdam, WarmupLinearSchedule
+from my_bert.tokenization import BertTokenizer, SimpleTokenizer
+from my_bert.modeling import BertForSequenceClassification, BertConfig
+from my_bert.file_utils import my_bert_CACHE, WEIGHTS_NAME, CONFIG_NAME
 
 from model_configs import *
 from simple_models import SimpleSequenceClassification
@@ -91,7 +91,7 @@ class Trainer_Main(object):
 
 
     def _get_model(self, pretrain_embs):
-        cache_dir = self.args.cache_dir if self.args.cache_dir else os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE),
+        cache_dir = self.args.cache_dir if self.args.cache_dir else os.path.join(str(my_bert_CACHE),
                                                                                  'distributed_{}'.format(
                                                                                      self.args.local_rank))
         if not self.args.use_nonbert:

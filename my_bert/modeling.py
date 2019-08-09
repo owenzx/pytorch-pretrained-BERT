@@ -1242,16 +1242,24 @@ class BertForQuestionAnswering(BertPreTrainedModel):
 class BertForCoreference(BertPreTrainedModel):
     def __init__(self, config):
         super(BertForCoreference, self).__init__(config)
+        self.span_pooling = 'attn'
+        self.proj_dim = 1024
+        self.cnn_context = 0
         self.bert = BertModel(config)
+        d_inp = 768
+
         self.span_extractor1 = self._make_span_extractor()
         self.span_extractor2 = self._make_span_extractor()
-        self.span_extrators = [None, self.span_extractor1, self.span_extractor2]
+        self.span_extractors = [None, self.span_extractor1, self.span_extractor2]
         self.proj1 = self._make_cnn_layer(d_inp)
         self.proj2 = self._make_cnn_layer(d_inp)
         self.projs = [None, self.proj1, self.proj2]
-        clf_input_dim = self.span_extrators[1].get_output_dim() + self.span_extrators[2].get_output_dim()
+        clf_input_dim = self.span_extractors[1].get_output_dim() + self.span_extractors[2].get_output_dim()
 
-        self.classifier = modules.Classifier.from_params(clf_input_dim, 2)
+        cls_params = {'cls_type':'mlp', 'dropout':0.2 , 'd_hid':self.proj_dim}
+
+        self.classifier = modules.Classifier.from_params(clf_input_dim, 2, params=cls_params)
+
 
         self.apply(self.init_bert_weights)
 
@@ -1284,8 +1292,15 @@ class BertForCoreference(BertPreTrainedModel):
         sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
         if detach_bert:
             sequence_output = sequence_output.detach()
-        se_proj1 = self.projs[1](sequence_output)
-        se_proj2 = self.projs[2](sequence_output)
+        sequence_output = sequence_output.transpose(1, 2)
+        se_proj1 = self.projs[1](sequence_output).transpose(2, 1).contiguous()
+        se_proj2 = self.projs[2](sequence_output).transpose(2, 1).contiguous()
+
+
+        span1_l_position = span1_l_position.view(-1, 1, 1)
+        span1_r_position = span1_r_position.view(-1, 1, 1)
+        span2_l_position = span2_l_position.view(-1, 1, 1)
+        span2_r_position = span2_r_position.view(-1, 1, 1)
 
         span1_indices = torch.cat([span1_l_position, span1_r_position], dim=2)
         span2_indices = torch.cat([span2_l_position, span2_r_position], dim=2)
@@ -1298,6 +1313,7 @@ class BertForCoreference(BertPreTrainedModel):
         span2 = self.span_extractors[2](se_proj2, span2_indices, **_kw)
         span_emb = torch.cat([span1, span2], dim=2)
         logits = self.classifier(span_emb)
+        logits = logits.squeeze(1)
 
         loss_fct = CrossEntropyLoss()
         total_loss = loss_fct(logits, labels)

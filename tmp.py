@@ -95,11 +95,352 @@ def check_data():
         json.dump(json_dict, fw)
 
 
+def read_coref_data():
+    import json
+    data_path = '/playpen/home/xzh/datasets/coref/cleaned/coref/train.json'
+    with open(data_path, 'r') as fr:
+        lines = fr.readlines()
+    for line in lines:
+        exp = json.loads(line)
+        print(exp)
+
+
+
+def get_mistakes(pred_path = None, data_path=None):
+    import json
+    import numpy as np
+    if pred_path is None:
+        pred_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_freeze_1/predictions.json'
+    #pred_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_2/predictions.json'
+    if data_path is None:
+        data_path = '/playpen/home/xzh/datasets/coref/cleaned/coref/development.json'
+    #data_path = '/playpen/home/xzh/datasets/coref/cleaned/coref/dev_wiki_short.json'
+    error_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/error.txt'
+    correct_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/correct.txt'
+
+
+
+    result_dict= {}
+    mistakes = []
+    correct_samples = []
+    with open(pred_path, 'r') as fr:
+        lines =  fr.readlines()
+    for line in lines:
+        result = json.loads(line)
+        result_dict[result['unique_id']] = {'is_correct': result['is_correct']}
+
+    with open(data_path, 'r') as fr:
+        lines = fr.readlines()
+    for line in lines:
+        raw_example = json.loads(line)
+        #filter out all the examples without spans
+
+        if len(raw_example["targets"]) < 1:
+            continue
+
+
+        for target_id, target in enumerate(raw_example["targets"]):
+            guid = raw_example["info"]["document_id"] + "_" + str(raw_example["info"]["sentence_id"]) + "_" + str(target_id)
+
+            span1_l, span1_r, span2_l, span2_r = target["span1"][0], target["span1"][1], target["span2"][0], target["span2"][1]
+
+            label = target["label"]
+
+            raw_tokens = raw_example["text"].split(' ')
+
+            raw_tokens[span1_l] = "[[SPAN1 "+ raw_tokens[span1_l]
+            raw_tokens[span1_r-1] = raw_tokens[span1_r-1] + " SPAN1]]"
+            raw_tokens[span2_l] = "[[SPAN2 "+ raw_tokens[span2_l]
+            raw_tokens[span2_r-1] = raw_tokens[span2_r-1] + " SPAN2]]"
+
+            mistake_text ='LABEL: %s\n'%str(label) + ' '.join(raw_tokens)
+            if not result_dict[guid]['is_correct']:
+                mistakes.append(mistake_text)
+            else:
+                correct_samples.append(mistake_text)
+
+
+    with open(error_path, 'w') as fw:
+        for m in mistakes:
+            fw.write(m + '\n')
+
+
+    with open(correct_path, 'w') as fw:
+        for c in correct_samples:
+            fw.write(c + '\n')
+
+    return mistakes, correct_samples
+
+
+def get_difficulty_acc_figure():
+    import json
+    import numpy as np
+    from collections import Counter
+    import matplotlib
+    import matplotlib.pyplot as plt
+    pred_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_freeze_1/predictions.json'
+    #pred_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_2/predictions.json'
+    data_path = '/playpen/home/xzh/datasets/coref/cleaned/coref/development.json'
+    #data_path = '/playpen/home/xzh/datasets/coref/cleaned/coref/dev_wiki_short.json'
+
+    dist_option = 'word'
+
+    assert(dist_option in ['word', 'entity'])
+
+    result_dict= {}
+    with open(pred_path, 'r') as fr:
+        lines =  fr.readlines()
+    for line in lines:
+        result = json.loads(line)
+        result_dict[result['unique_id']] = {'is_correct': result['is_correct']}
+
+
+    with open(data_path, 'r') as fr:
+        lines = fr.readlines()
+    for line in lines:
+        raw_example = json.loads(line)
+        #filter out all the examples without spans
+
+        if len(raw_example["targets"]) < 1:
+            continue
+
+        entities = []
+
+        if dist_option == 'entity':
+            for target_id, target in enumerate(raw_example["targets"]):
+                span1_l, span1_r, span2_l, span2_r = target["span1"][0], target["span1"][1], target["span2"][0], target["span2"][1]
+                entities.append((span1_l, span1_r))
+                entities.append((span2_l, span2_r))
+        entities = set(entities)
+        #print(len(entities))
+
+
+        for target_id, target in enumerate(raw_example["targets"]):
+            guid = raw_example["info"]["document_id"] + "_" + str(raw_example["info"]["sentence_id"]) + "_" + str(target_id)
+
+            span1_l, span1_r, span2_l, span2_r = target["span1"][0], target["span1"][1], target["span2"][0], target["span2"][1]
+
+            label = target["label"]
+
+            #if label == '0':
+            #    continue
+
+            min_r = min(span1_r, span2_r)
+            max_l = max(span1_l, span2_l)
+
+            if dist_option == 'word':
+                dist = max_l - min_r
+                if dist < 0:
+                    dist = -1
+            else:
+                dist = 0
+                for e in entities:
+                    if e[0]>=min_r and e[1]<=max_l:
+                        dist += 1
+            result_dict[guid]['dist'] = dist
+
+    dist_dict = {}
+    for id, res_dict in result_dict.items():
+        if 'dist' not in res_dict:
+            continue
+        if dist_option == 'word':
+            if res_dict['dist']//10 not in dist_dict:
+                dist_dict[res_dict['dist']//10] = {'total':0, 'correct':0}
+            dist_dict[res_dict['dist']//10]['total'] += 1
+            dist_dict[res_dict['dist']//10]['correct'] += res_dict['is_correct']
+        elif dist_option =='entity':
+            if res_dict['dist'] not in dist_dict:
+                dist_dict[res_dict['dist']] = {'total':0, 'correct':0}
+            dist_dict[res_dict['dist']]['total'] += 1
+            dist_dict[res_dict['dist']]['correct'] += res_dict['is_correct']
+
+    for k in dist_dict.keys():
+        dist_dict[k]['acc'] = dist_dict[k]['correct'] / dist_dict[k]['total']
+
+
+
+    #Merge small buckets so that the size of each bucket is at least 100
+    raw_labels = sorted(dist_dict.keys(), reverse=True)
+    bucket_count = 0
+    merge_labels = []
+    for l in raw_labels:
+        if dist_dict[l]['total'] >= 100:
+            break
+        bucket_count += dist_dict[l]['total']
+        merge_labels.append(l)
+        if bucket_count >= 100:
+            new_label = '{}-{}'.format(merge_labels[-1], merge_labels[0])
+            dist_dict[new_label] = {'total': bucket_count, 'correct': sum([dist_dict[k]['correct'] for k in merge_labels])}
+            dist_dict[new_label]['acc'] = dist_dict[new_label]['correct'] / dist_dict[new_label]['total']
+            for m_l in merge_labels:
+                del dist_dict[m_l]
+            bucket_count = 0
+            merge_labels = []
+
+    labels = sorted(dist_dict.keys(), key=lambda x:x if type(x) is int else int(x.split('-')[0]))
+    #labels = sorted(dist_dict.keys())
+    values = [dist_dict[k]['acc'] for k in labels]
+    #values = [dist_dict[k]['total'] for k in labels]
+
+    #labels, values = zip(*sorted(dist_dict))
+    indexes = np.arange(len(labels))
+    width = 1
+
+
+    plt.bar(indexes, values, width)
+    plt.xticks(indexes + width * 0.5, labels)
+    plt.savefig('tmp.pdf')
+
+
+
+def get_analysis_datasets():
+    #Random function used to pring some analysis stuff
+    dataset_path = '/playpen/home/xzh/datasets/coref/cleaned/coref/development.json'
+
+    analysis_path = ''
+
+
+    with open(dataset_path, 'r') as fr:
+        lines = fr.readlines()
+    for line in lines:
+        pass
+
+
+
+def clean_wikicoref():
+    import json
+    wiki_path = '/playpen/home/xzh/datasets/WikiCoref/Evaluation/key-OntoNotesScheme'
+
+    clean_path = '/playpen/home/xzh/datasets/coref/cleaned/coref/dev_wiki_short.json'
+
+    with open(wiki_path, 'r') as fr:
+        lines = fr.readlines()
+
+    clean_dicts =[]
+
+    in_document = False
+    document_count = 0
+
+    for i, line in enumerate(lines):
+        if line[-1] == '\n':
+            line = line[:-1]
+        if line[:6] == '#begin':
+            in_document = True
+            document_text = []
+            span_dict = dict()
+        elif line[:4] == '#end':
+            in_document = False
+
+
+            #TODO remove 300/290 limit
+            clean_dict = {"info":{"document_id":"wiki/%d"%document_count, "sentence_id":0}, "text": " ".join(document_text[:290]), "targets": []}
+            spans_list = []
+            for span_idx, spans in span_dict.items():
+                for span in spans:
+                    if span[0]>=290 or span[1]>=290:
+                        continue
+                    spans_list.append({"span":span, "span_idx":span_idx})
+
+            for i in range(len(spans_list)):
+                for j in range(i+1, len(spans_list)):
+                    clean_dict["targets"].append({"span1":spans_list[i]["span"], "span2":spans_list[j]["span"], "label":"1" if spans_list[i]["span_idx"]==spans_list[j]["span_idx"] else "0"})
+
+            document_count += 1
+            clean_dicts.append(clean_dict)
+
+
+        elif len(line) == 0:
+            continue
+        elif line[:4] == 'null':
+            continue
+        else:
+            assert(in_document)
+            assert(len(line.split('\t')) == 5)
+            _, _, idx, word, span_label = line.split('\t')
+            cur_word_idx = len(document_text)
+            document_text.append(word)
+            if span_label == '-':
+                pass
+            else:
+                spans = span_label.split('|')
+                for s in spans:
+                    if s[0] == '(' and s[-1] == ')':
+                        span_idx = int(s[1:-1])
+                        if span_idx not in span_dict:
+                            span_dict[span_idx] = []
+                        span_dict[span_idx].append([cur_word_idx, cur_word_idx+1])
+                    elif s[0] == '(':
+                        span_idx = int(s[1:])
+                        if span_idx not in span_dict:
+                            span_dict[span_idx] = []
+                        span_dict[span_idx].append([cur_word_idx, -1])
+                    elif s[-1] == ')':
+                        span_idx = int(s[:-1])
+                        span_dict[span_idx][-1][1] = cur_word_idx + 1
+                    else:
+                        print(len(span_label))
+                        print(span_label[-1]=='\n')
+                        print(span_label)
+                        print(s)
+                        exit()
+
+
+
+
+    with open(clean_path, 'w') as fw:
+        for d in clean_dicts:
+            json.dump(d, fw)
+            fw.write('\n')
+
+
+def get_common_mistakes():
+    import json
+    #pred_paths = ['/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_freeze_1/predictions.json', '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_freeze_1_seed1/predictions.json', '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_freeze_1_seed2/predictions.json']
+    pred_paths = ['/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_2/predictions.json', '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_2_seed1/predictions.json', '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_2_seed2/predictions.json']
+    common_mistakes = None
+    common_correct = None
+
+    #common_error_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/common_freeze.error'
+    #common_correct_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/common_freeze.correct'
+    common_error_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/common.error'
+    common_correct_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/common.correct'
+
+    for path in pred_paths:
+        mistakes, correct = get_mistakes(pred_path=path)
+        if common_mistakes is None:
+            common_mistakes = set(mistakes)
+            common_correct = set(correct)
+        else:
+            common_mistakes = common_mistakes.intersection(mistakes)
+            common_correct = common_correct.intersection(correct)
+
+    with open(common_error_path, 'w') as fw:
+        for m in common_mistakes:
+            fw.write(m+'\n')
+
+    with open(common_correct_path, 'w') as fw:
+        for c in common_correct:
+            fw.write(c+'\n')
+
+
+
+
+
+
+
+
+
+
 
 
 
 
 
 if __name__ == '__main__':
-    check_data()
+    #check_data()
+    #read_coref_data()
+    #get_difficulty_acc_figure()
+    #get_mistakes()
+    get_common_mistakes()
+    #clean_wikicoref()
 

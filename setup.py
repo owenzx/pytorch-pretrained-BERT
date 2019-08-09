@@ -37,7 +37,7 @@ from io import open
 from setuptools import find_packages, setup
 
 setup(
-    name="pytorch_pretrained_bert",
+    name="my_bert",
     version="0.6.2",
     author="Thomas Wolf, Victor Sanh, Tim Rault, Google AI Language Team Authors, Open AI team Authors",
     author_email="thomas@huggingface.co",
@@ -57,7 +57,7 @@ setup(
                       'regex'],
     entry_points={
       'console_scripts': [
-        "pytorch_pretrained_bert=pytorch_pretrained_bert.__main__:main",
+        "my_bert=my_bert.__main__:main",
       ]
     },
     # python_requires='>=3.5.0',
