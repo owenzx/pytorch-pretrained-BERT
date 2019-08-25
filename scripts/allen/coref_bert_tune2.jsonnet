@@ -5,7 +5,7 @@
     "type": "my_coref",
     "bert_model_name": "bert-base-uncased",
     "max_pieces": 512,
-    "max_span_width": 15
+    "max_span_width": 25
   },
   "train_data_path": std.extVar("COREF_TRAIN_DATA_PATH"),
   "validation_data_path": std.extVar("COREF_DEV_DATA_PATH"),
@@ -36,9 +36,9 @@
     },
     "lexical_dropout": 0.1,
     "feature_size": 20,
-    "max_span_width": 15,
+    "max_span_width": 25,
     "spans_per_word": 0.4,
-    "max_antecedents": 100
+    "max_antecedents": 150
   },
   "iterator": {
     "type": "bucket",
@@ -53,13 +53,16 @@
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":2802
+      "num_steps_per_epoch":4738
     },
     "optimizer": {
       "type": "bert_adam",
       "lr": 2e-5,
       "t_total": -1,
       "max_grad_norm": 1.0,
+      "parameter_group":[
+
+      ]
     }
   }
 }

@@ -29,7 +29,7 @@ Number of training samples/portion of the original training set
 
 GFT: Performance on both in-domain dev set and out-of-domain dev set
 
-DaLore: 
+LoreDa: 
 
 
 ## Datasets

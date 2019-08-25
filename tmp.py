@@ -178,10 +178,10 @@ def get_difficulty_acc_figure():
     from collections import Counter
     import matplotlib
     import matplotlib.pyplot as plt
-    pred_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_freeze_1/predictions.json'
+    pred_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_wiki_train_bert_coref_2/predictions.json'
     #pred_path = '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/check_train_bert_coref_2/predictions.json'
-    data_path = '/playpen/home/xzh/datasets/coref/cleaned/coref/development.json'
-    #data_path = '/playpen/home/xzh/datasets/coref/cleaned/coref/dev_wiki_short.json'
+    #data_path = '/playpen/home/xzh/datasets/coref/cleaned/coref/development.json'
+    data_path = '/playpen/home/xzh/datasets/coref/cleaned/coref/dev_wiki_short.json'
 
     dist_option = 'word'
 
@@ -424,10 +424,163 @@ def get_common_mistakes():
 
 
 
+def check_coref_doc_stats():
+    coref_file = '/playpen/home/xzh/datasets/coref/allen/dev.english.v4_gold_conll'
+
+    with open(coref_file, 'r') as fr:
+        lines = fr.readlines()
+
+    doc_lens = []
+
+    for line in lines:
+        if len(line) <= 1:
+            continue
+        if line[0] == '#':
+            if line[:6] == '#begin':
+                doc_len = 0
+            elif line[:4] == '#end':
+                doc_lens.append(doc_len)
+        else:
+            doc_len += 1
+
+    print(doc_lens)
+    print(sorted(doc_lens))
+    print(max(doc_lens))
+
+    return doc_lens
 
 
 
 
+
+
+
+
+def get_bert_ckpt_out():
+    import os
+    import torch
+    from collections import OrderedDict
+    from shutil import copyfile
+
+    config_option = 'bert_base_uncased'
+    allen_dir = '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/allen_test_bert_tune_large/'
+    if config_option == 'bert_base_uncased':
+        bert_config_file =  '/playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/train_bert_coref_save_1_int_33000/config.json'
+    else:
+        raise NotImplementedError
+
+    new_bert_dir = os.path.join(allen_dir, 'tuned_bert')
+    if not os.path.exists(new_bert_dir):
+        os.makedirs(new_bert_dir)
+    new_bert_config_path = os.path.join(new_bert_dir, 'config.json')
+    copyfile(bert_config_file, new_bert_config_path)
+    new_bert_state_dict_path = os.path.join(new_bert_dir, 'pytorch_model.bin')
+
+
+    allen_state_dict_path = os.path.join(allen_dir, 'best.th')
+
+    allen_state_dict = torch.load(allen_state_dict_path)
+
+    new_state_dict = OrderedDict()
+
+    for k in allen_state_dict.keys():
+        if 'bert' not in k:
+            continue
+        new_key = k.replace('bert_model', 'bert')
+        new_state_dict[new_key] = allen_state_dict[k]
+
+    torch.save(new_state_dict, new_bert_state_dict_path)
+
+
+
+
+def cluster_error_ana():
+    import json
+    prediction_file = './tmp.out'
+
+    ana_type = 'pair'
+    assert(ana_type in ['mention', 'pair'])
+    md_strs = []
+    wrong_pairs = []
+    miss_pairs = []
+
+    with open(prediction_file, 'r') as fr:
+        lines = fr.readlines()
+    for line in lines:
+        predictions = json.loads(line)
+
+        #top_spans predicted_antecedents, loss, document, tokenized_text, clusters, gold_clusters
+        #if "Udai" not in predictions['document']:
+        #    continue
+
+        tokenized_text = predictions['tokenized_text']
+
+        totuple = lambda t: tuple(totuple(tt) for tt in t) if isinstance(t, list) else t
+
+        predicted_clusters = totuple(predictions['clusters'])
+        predicted_clusters = [set(c) for c in predicted_clusters]
+        predicted_mentions = set().union(*predicted_clusters)
+
+        gold_clusters = totuple(predictions['gold_clusters'])
+        gold_clusters = [set(c) for c in gold_clusters]
+
+        gold_mentions = set().union(*gold_clusters)
+
+        if ana_type == 'mention':
+            for mention in predicted_mentions - gold_mentions:
+                l, r = mention
+                tokenized_text[l] = '<span style="color:red">' + tokenized_text[l]
+                tokenized_text[r] = tokenized_text[r] + '</span>'
+
+            for mention in gold_mentions - predicted_mentions:
+                l, r = mention
+                tokenized_text[l] = '<span style="color:yellow">' + tokenized_text[l]
+                tokenized_text[r] = tokenized_text[r] + '</span>'
+
+        if ana_type == 'pair':
+
+            miss_words = set()
+
+            common_mentions = gold_mentions.intersection(predicted_mentions)
+            for c in gold_clusters:
+                c = c.intersection(common_mentions)
+                if len(c) <= 1:
+                    continue
+                max_int = 0
+                for c2 in predicted_clusters:
+                    if len(c2.intersection(c)) > max_int:
+                        max_int = len(c2.intersection(c))
+                        miss_word = c - c2
+                miss_words = miss_words.union(miss_word)
+
+            for (l, r) in miss_words:
+                tokenized_text[l] = '<span style="color:green">' + tokenized_text[l]
+                tokenized_text[r] = tokenized_text[r] + '</span>'
+
+            wrong_words =  set()
+            for c2 in predicted_clusters:
+                c2 = c2.intersection(common_mentions)
+                if len(c) <= 1:
+                    continue
+                max_int = 0
+                for c in gold_clusters:
+                    if len(c.intersection(c2)) > max_int:
+                        max_int = len(c.intersection(c2))
+                        wrong_word = c2 - c
+                wrong_words = wrong_words.union(wrong_word)
+
+            for (l, r) in wrong_words:
+                tokenized_text[l] = '<span style="color:blue">' + tokenized_text[l]
+                tokenized_text[r] = tokenized_text[r] + '</span>'
+
+
+        md_str = ' '.join(tokenized_text)
+        if len(miss_words) + len(wrong_words) > 0:
+            md_strs.append(md_str)
+
+    with open('./get_back/cluster_ana%s.md'%ana_type, 'w') as fw:
+        for s in md_strs:
+            fw.write(s + '\n\n')
 
 
 
@@ -441,6 +594,9 @@ if __name__ == '__main__':
     #read_coref_data()
     #get_difficulty_acc_figure()
     #get_mistakes()
-    get_common_mistakes()
+    #get_common_mistakes()
     #clean_wikicoref()
+    #check_coref_doc_stats()
+    #get_bert_ckpt_out()
+    cluster_error_ana()
 

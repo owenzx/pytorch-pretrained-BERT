@@ -5,7 +5,7 @@
     "type": "my_coref",
     "bert_model_name": "bert-base-uncased",
     "max_pieces": 512,
-    "max_span_width": 15
+    "max_span_width": 25
   },
   "train_data_path": std.extVar("COREF_TRAIN_DATA_PATH"),
   "validation_data_path": std.extVar("COREF_DEV_DATA_PATH"),
@@ -13,22 +13,15 @@
   "model": {
     "type": "my_coref",
     "bert_model": "bert-base-uncased",
-    "bert_feedforward":{
-      "input_dim": 768,
-      "num_layers": 1,
-      "hidden_dims": 400,
-      "activations": "relu",
-      "dropout": 0.2
-    },
     "mention_feedforward": {
-        "input_dim": 1220,
+        "input_dim": 2324,
         "num_layers": 2,
         "hidden_dims": 150,
         "activations": "relu",
         "dropout": 0.2
     },
     "antecedent_feedforward": {
-        "input_dim": 3680,
+        "input_dim": 6992,
         "num_layers": 2,
         "hidden_dims": 150,
         "activations": "relu",
@@ -36,9 +29,9 @@
     },
     "lexical_dropout": 0.1,
     "feature_size": 20,
-    "max_span_width": 15,
+    "max_span_width": 25,
     "spans_per_word": 0.4,
-    "max_antecedents": 100
+    "max_antecedents": 150
   },
   "iterator": {
     "type": "bucket",
@@ -53,7 +46,7 @@
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":2802
+      "num_steps_per_epoch":4738
     },
     "optimizer": {
       "type": "bert_adam",

@@ -8,6 +8,16 @@ from data_processing import *
 import pickle
 
 
+def inv_map(d):
+    return {v: k for k, v in d.items()}
+
+def one_hot(x, l):
+    v = np.zeros(l)
+    v[x] = 1.
+    return v
+
+
+
 def dump_datasets(examples, path):
     pkl_path = path + '.pkl'
     txt_path = path + '.txt'
@@ -151,7 +161,7 @@ data_dirs = {
 }
 
 mtl_root_path = './datasets/mtl-dataset/subdatasets/'
-mtl_domains = ['apparel', 'dvd', 'kitchen_housewares', 'software', 'baby', 'electronics', 'magazines', 'sports_outdoors', 'books', 'health_personal_care', 'mr', 'toys_games', 'camera_photo', 'imdb', 'music', 'video']
+mtl_domains = ['apparel', 'dvd', 'kitchen_housewares', 'software', 'baby', 'electronics', 'magazines', 'sports_outdoors', 'books', 'health_personal_care', 'mr', 'toys_games', 'camera_photo', 'imdb', 'music', 'video', 'overfit']
 
 for dom in mtl_domains:
     data_dirs['mtl-%s'%dom] = mtl_root_path + dom + '/'
@@ -367,7 +377,83 @@ def clean_back_trans_results(final_file):
     return cleaned_file
 
 
+def senIdx2docIdx(senlens, senidx, wordidx):
+    # Given the length of sentences, the sentence idx, word idx in the sentence, return idx in the whole document
+    return sum(senlens[:senidx]) + wordidx
 
+
+def organize_features(features, metadata):
+    # Organize the features so that given the span index, return the metnion/coref/pos thing
+    sens = metadata['original_text']
+    senlens = [len(s) for s in sens]
+    organized_dict = {'mentions':dict()}
+    mention_features = features['mentions']
+    coref_features = features['corefChain']
+
+    for m in mention_features:
+        organized_dict['mentions'][(senIdx2docIdx(senlens, m.sentNum, m.startIndex), senIdx2docIdx(senlens, m.sentNum, m.endIndex - 1))] = m
+
+    return organized_dict
+
+
+def get_stanford_tokens(client, sentences):
+    ann = client.annotate(' '.join(sentences))
+    stanford_sens = ann.sentence
+    tokens = []
+    for s in stanford_sens:
+        for tok in s.token:
+            tokens.append(tok.word)
+    return tokens
+
+
+
+def get_sentence_features(client, metadata):
+
+    text = metadata['original_text']
+    ann = client.annotate(' '.join(text))
+    sentences = ann.sentence
+
+    dep_parse = [s.basicDependencies for s in sentences]
+    con_parse = [s.parseTree for s in sentences]
+    tokens = []
+    for s in sentences:
+        for tok in s.token:
+            tokens.append(tok)
+    #tokens = [s.token for s in sentences]
+    pos = [t.pos for t in tokens]
+    ner = [t.ner for t in tokens]
+    #mentions = [s.mentions for s in sentences]
+    mentions = ann.mentionsForCoref
+    corefChain = ann.corefChain
+
+    features = {'sentences': sentences,
+                'dep_parse':dep_parse,
+                'con_parse':con_parse,
+                'tokens': tokens,
+                'pos': pos,
+                'ner': ner,
+                'mentions': mentions,
+                'corefChain': corefChain}
+
+    features = organize_features(features, metadata)
+
+    #assert(len(features['pos'])==len(text))
+
+    return features
+
+
+
+def get_mention_features(mention):
+    pass
+
+
+
+def get_pair_features(m1, m2):
+    pass
+
+
+def rm_sets_from_clusters(c):
+    return [list(x) for x in c]
 
 
 if __name__ == '__main__':
@@ -377,5 +463,6 @@ if __name__ == '__main__':
     #compare_preds(patha, pathb)
 
     #prepare4translation(raw_file='./datasets/mtl-dataset/subdatasets/apparel/train.tsv')
-    extract_source_from_middle(middle_file='../ref_repos/paraphrase_translation/middle.out')
+    #extract_source_from_middle(middle_file='../ref_repos/paraphrase_translation/middle.out')
+    pass
 

@@ -17,13 +17,16 @@ from allennlp.modules.span_extractors import SelfAttentiveSpanExtractor, Endpoin
 from allennlp.nn import util, InitializerApplicator, RegularizerApplicator
 from allennlp.nn.util import get_text_field_mask
 from allennlp.training.metrics import MentionRecall, ConllCorefScores
+from stanfordnlp.server import CoreNLPClient
 
 from utils import rm_sets_from_clusters
+#from utils import get_sentence_features
+from coref_features import get_mention_features # , get_pair_feature_vec
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
-@Model.register("my_coref")
+@Model.register("my_coref_w_features")
 class MyCoreferenceResolver(Model):
     """
     This ``Model`` implements the coreference resolution model described "End-to-end Neural
@@ -128,6 +131,9 @@ class MyCoreferenceResolver(Model):
             self._lexical_dropout = torch.nn.Dropout(p=lexical_dropout)
         else:
             self._lexical_dropout = lambda x: x
+        self.feature_extractor = CoreNLPClient(annotators=['tokenizer', 'ssplit', 'pos', 'lemma', 'ner', 'parse', 'depparse', 'coref'], timeout=60000, memory='16G', be_quiet=True)
+
+
         initializer(self)
 
     @overrides
@@ -171,6 +177,13 @@ class MyCoreferenceResolver(Model):
         loss : ``torch.FloatTensor``, optional
             A scalar loss to be optimised.
         """
+
+        #first calculcate whole sentence features
+        #sentence_features = get_sentence_features(self.feature_extractor, metadata)
+        sentence_features = [x['features'] for x in metadata]
+
+
+
         mask = get_text_field_mask(text)
 
         # Shape: (batch_size, document_length, embedding_size)
@@ -227,6 +240,8 @@ class MyCoreferenceResolver(Model):
         # This reformats the indices to take into account their
         # index into the batch. We precompute this here to make
         # the multiple calls to util.batched_index_select below more efficient.
+
+
         flat_top_span_indices = util.flatten_and_batch_shift_indices(top_span_indices, num_spans)
 
         # Compute final predictions for which spans to consider as mentions.
@@ -234,6 +249,11 @@ class MyCoreferenceResolver(Model):
         top_spans = util.batched_index_select(spans,
                                               top_span_indices,
                                               flat_top_span_indices)
+
+        feature_span_vecs = get_mention_features(metadata, top_spans)
+        print(top_span_embeddings.shape)
+        print(feature_span_vecs.shape)
+        top_span_embeddings = torch.cat([top_span_embeddings, feature_span_vecs], -1)
 
         # Compute indices for antecedent spans to consider.
         max_antecedents = min(self._max_antecedents, num_spans_to_keep)
@@ -266,12 +286,23 @@ class MyCoreferenceResolver(Model):
         # Shape: (batch_size, num_spans_to_keep, max_antecedents)
         candidate_antecedent_mention_scores = util.flattened_index_select(top_span_mention_scores,
                                                                           valid_antecedent_indices).squeeze(-1)
+        #print(top_span_embeddings.shape)
+        #print(candidate_antecedent_embeddings.shape)
         # Compute antecedent scores.
         # Shape: (batch_size, num_spans_to_keep, max_antecedents, embedding_size)
         span_pair_embeddings = self._compute_span_pair_embeddings(top_span_embeddings,
                                                                   candidate_antecedent_embeddings,
                                                                   valid_antecedent_offsets)
+
+        #paired_spans = util.batched_index_select(spans, valid_antecedent_indices)
+
+        #pair_featrure_vecs = get_pair_feature_vec(sentence_features, top_spans, paired_spans)
+
+        #span_pair_embeddings =  torch.cat([span_pair_embeddings, pair_featrure_vecs], -1)
+
         # Shape: (batch_size, num_spans_to_keep, 1 + max_antecedents)
+        #print(span_pair_embeddings.shape)
+        #exit()
         coreference_scores = self._compute_coreference_scores(span_pair_embeddings,
                                                               top_span_mention_scores,
                                                               candidate_antecedent_mention_scores,

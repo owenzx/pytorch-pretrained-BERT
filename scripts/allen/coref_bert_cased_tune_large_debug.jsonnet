@@ -5,30 +5,23 @@
     "type": "my_coref",
     "bert_model_name": "bert-base-uncased",
     "max_pieces": 512,
-    "max_span_width": 15
+    "max_span_width": 25
   },
   "train_data_path": std.extVar("COREF_TRAIN_DATA_PATH"),
   "validation_data_path": std.extVar("COREF_DEV_DATA_PATH"),
   "test_data_path": std.extVar("COREF_TEST_DATA_PATH"),
   "model": {
     "type": "my_coref",
-    "bert_model": "bert-base-uncased",
-    "bert_feedforward":{
-      "input_dim": 768,
-      "num_layers": 1,
-      "hidden_dims": 400,
-      "activations": "relu",
-      "dropout": 0.2
-    },
+    "bert_model": "./outputs/allen_test_bert_tune_large/tuned_bert/",
     "mention_feedforward": {
-        "input_dim": 1220,
+        "input_dim": 2324,
         "num_layers": 2,
         "hidden_dims": 150,
         "activations": "relu",
         "dropout": 0.2
     },
     "antecedent_feedforward": {
-        "input_dim": 3680,
+        "input_dim": 6992,
         "num_layers": 2,
         "hidden_dims": 150,
         "activations": "relu",
@@ -36,9 +29,9 @@
     },
     "lexical_dropout": 0.1,
     "feature_size": 20,
-    "max_span_width": 15,
+    "max_span_width": 25,
     "spans_per_word": 0.4,
-    "max_antecedents": 100
+    "max_antecedents": 150
   },
   "iterator": {
     "type": "bucket",
@@ -53,13 +46,17 @@
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":2802
+      "num_steps_per_epoch":4738
     },
     "optimizer": {
       "type": "bert_adam",
       "lr": 2e-5,
       "t_total": -1,
       "max_grad_norm": 1.0,
+      "parameter_groups":[
+        [["bert_model.*bias", "bert_model.*LayerNorm.bias", "bert_model.*LayerNorm.weight", "bert_model.*layer_norm.weight"], {"weight_decay": 0.0}],
+        [["_antecedent_feedforward", "_mention_pruner", "_antecedent_scorer", "_endpoint_span_extractor", "_attentive_span_extractor", "_distance_embedding"], {"lr":2e-4, "parameter_groups":[[["bias", "LayerNorm.bias", "LayerNorm.weight", "layer_norm.weight"], {"weight_decay": 0.0}]]}]
+      ]
     }
   }
 }

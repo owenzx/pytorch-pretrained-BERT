@@ -478,9 +478,13 @@ def main():
                         type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument("--num_train_epochs",
-                        default=3.0,
+                        default=None,
                         type=float,
                         help="Total number of training epochs to perform.")
+    parser.add_argument("--num_train_steps",
+                        default=None,
+                        type=int,
+                        help="Total number of training steps, one of num_train_epochs and num_train_steps should be None")
     parser.add_argument("--warmup_proportion",
                         default=0.1,
                         type=float,
@@ -576,6 +580,8 @@ def main():
         print(args.use_nonbert)
         assert(args.bert_model is not None)
 
+    assert((args.num_train_epochs is None) or (args.num_train_steps is None))
+
 
     if args.server_ip and args.server_port:
         # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
@@ -648,7 +654,7 @@ def main():
     # assert(all_same(test_num_labels+[num_labels]))
 
     if not args.use_nonbert:
-        tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
+        tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case, cache_dir=args.cache_dir)
     else:
         tokenizer = SimpleTokenizer(vocab_file=args.glove_path, do_lower_case=args.do_lower_case, topn=args.glove_topn)
         glove_embs = load_glove_embs(args.glove_path, tokenizer.vocab)
@@ -660,8 +666,11 @@ def main():
             train_examples = processor.get_train_examples(data_dir_main, args.data_portion, args.num_per_label)
         else:
             train_examples = processor.get_augmented_train_examples(args.real_path)
-        num_train_optimization_steps = int(
-            len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps) * args.num_train_epochs
+        if args.num_train_steps is None:
+            num_train_optimization_steps = int(
+                len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps) * args.num_train_epochs
+        else:
+            num_train_optimization_steps = args.num_train_steps
         if args.local_rank != -1:
             num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
@@ -752,7 +761,9 @@ def main():
         train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
 
         model.train()
-        for _ in trange(int(args.num_train_epochs), desc="Epoch"):
+        total_loop_epochs = int(args.num_train_epochs) if args.num_train_epochs is not None else 9999999
+        total_steps = 0
+        for _ in trange(total_loop_epochs, desc="Epoch"):
             tr_loss = 0
             nb_tr_examples, nb_tr_steps = 0, 0
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
@@ -782,6 +793,7 @@ def main():
                 tr_loss += loss.item()
                 nb_tr_examples += input_ids.size(0)
                 nb_tr_steps += 1
+                total_steps += 1
                 if (step + 1) % args.gradient_accumulation_steps == 0:
                     if args.fp16:
                         # modify learning rate with special warm up BERT uses
@@ -799,6 +811,10 @@ def main():
                         logger.info("Eval on %s"%t_name)
                         eval_model(t_name, tokenizer, model, args, device, task_main, results_dict['dev'][t_name], write2file=False)
                     model.train()
+                if total_steps >= args.num_train_steps:
+                    break
+            if total_steps >= args.num_train_steps:
+                break
 
     if args.do_train and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
         # Save a trained model, configuration and tokenizer

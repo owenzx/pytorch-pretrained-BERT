@@ -3,7 +3,7 @@
 {
   "dataset_reader": {
     "type": "my_coref",
-    "bert_model_name": "./outputs/train_bert_coref_save_1_int_33000/",
+    "bert_model_name": "./outputs/train_bert_coref_save_1_int_3000/",
     "max_pieces": 512,
     "max_span_width": 15
   },
@@ -12,7 +12,7 @@
   "test_data_path": std.extVar("COREF_TEST_DATA_PATH"),
   "model": {
     "type": "my_coref",
-    "bert_model": "./outputs/train_bert_coref_save_1_int_33000/",
+    "bert_model": "./outputs/train_bert_coref_save_1_int_3000/",
     "bert_feedforward":{
       "input_dim": 768,
       "num_layers": 1,
@@ -47,13 +47,13 @@
     "batch_size": 1
   },
   "trainer": {
-    "num_epochs": 15,
+    "num_epochs": 20,
     "cuda_device" : 0,
     "validation_metric": "+coref_f1",
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
-      "num_epochs": 15,
-      "num_steps_per_epoch":2802
+      "num_epochs": 20,
+      "num_steps_per_epoch":4738
     },
     "optimizer": {
       "type": "bert_adam",

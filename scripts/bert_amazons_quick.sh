@@ -10,10 +10,10 @@ python run_classifier_adv.py \
   --do_lower_case \
   --train_batch_size 32 \
   --learning_rate 2e-5 \
-  --num_train_steps 30000 \
+  --num_train_steps 3000 \
   --max_seq_length 128 \
   --cache_dir ./berts/ \
-  --output_dir ./outputs/bert_amazon2_30k_step/ > ./outputs/bert_amazon2_30k_step.out
+  --output_dir ./outputs/bert_amazon2_3k_step/ > ./outputs/bert_amazon2_3k_step.out
 
 python run_classifier_adv.py \
   --task_name amazon-2 \
@@ -25,10 +25,10 @@ python run_classifier_adv.py \
   --do_lower_case \
   --train_batch_size 32 \
   --learning_rate 2e-5 \
-  --num_train_steps 60000 \
+  --num_train_steps 6000 \
   --max_seq_length 128 \
   --cache_dir ./berts/ \
-  --output_dir ./outputs/bert_amazon2_60k_step/ > ./outputs/bert_amazon2_60k_step.out
+  --output_dir ./outputs/bert_amazon2_6k_step/ > ./outputs/bert_amazon2_6k_step.out
 
 #
 #python run_classifier_adv.py \

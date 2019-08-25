@@ -53,7 +53,7 @@
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":2802
+      "num_steps_per_epoch":4738
     },
     "optimizer": {
       "type": "bert_adam",

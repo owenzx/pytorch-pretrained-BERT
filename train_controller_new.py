@@ -321,6 +321,10 @@ def main():
                         default=False,
                         action = 'store_true')
 
+    parser.add_argument('--overfit_setting',
+                        default=False,
+                        action='store_true')
+
 
     args = parser.parse_args()
 
@@ -429,7 +433,11 @@ def main():
             dump_datasets(val_examples, args.fix_subsample_path+'.val')
 
     else:
-        train_examples, val_examples = sample_meta_trainval(full_examples, args.meta_train_size, args.meta_val_size)
+        if not args.overfit_setting:
+            train_examples, val_examples = sample_meta_trainval(full_examples, args.meta_train_size, args.meta_val_size)
+        else:
+            train_examples = full_examples
+            val_examples = processor.get_dev_examples(data_dir_main)
 
     if args.do_train:
     #    trainer_main.build_optimizer(train_examples)
@@ -438,6 +446,7 @@ def main():
     if args.do_eval:
         val_train_examples = processor.get_val_train_examples(data_dir_main)
         val_train_examples = val_train_examples[:args.meta_train_size]
+
 
     ## Start Training
 
@@ -457,21 +466,21 @@ def main():
             logger.info("BASELINE_ACC on epoch {}: {}".format(epoch_idx, val_metrics["acc"]))
             #train_examples = train_examples[:96]
 
-            for debug_i in range(5):
-                random.seed(debug_i)
-                np.random.seed(debug_i)
-                torch.manual_seed(debug_i)
-#
-#                #random.seed(0)
-#                #np.random.seed(0)
-#                #torch.manual_seed(0)
-                trainer_main.reset_model()
-                trainer_main.build_dataloader_and_optimizer(train_examples)
-                trainer_main.train(train_examples)
-                val_metrics = trainer_main.eval(val_examples)
-                logger.info("BASELINE_ACC on epoch {}: {}".format(epoch_idx, val_metrics["acc"]))
+            #for debug_i in range(5):
+            #    random.seed(debug_i)
+            #    np.random.seed(debug_i)
+            #    torch.manual_seed(debug_i)
+##
+##                #random.seed(0)
+##                #np.random.seed(0)
+##                #torch.manual_seed(0)
+#                trainer_main.reset_model()
+#                trainer_main.build_dataloader_and_optimizer(train_examples)
+#                trainer_main.train(train_examples)
+#                val_metrics = trainer_main.eval(val_examples)
+#                logger.info("BASELINE_ACC on epoch {}: {}".format(epoch_idx, val_metrics["acc"]))
 
-            exit()
+            #exit()
 
 
         aug_policy, log_probs, entropies = trainer_controller.get_policy(with_details=True)
@@ -489,23 +498,24 @@ def main():
 
         trainer_controller.train(reward, log_probs, entropies)
 
-        if epoch_idx % args.save_epoch == 0:
-            if args.new_valid_policy:
-                aug_policy = trainer_controller.get_policy()
-            aug_examples = generate_aug_examples(val_train_examples, aug_policy)
-            trainer_main.reset_model()
-            trainer_main.build_dataloader_and_optimizer(aug_examples)
-            trainer_main.train(aug_examples)
-            val_metrics = trainer_main.eval(val_examples)
-            logger.info("VAL_TRAIN_ACC on epoch {}: {}".format(epoch_idx, val_metrics["acc"]))
-            #
-            #
-            # trainer_cpt_path =  os.path.join(args.output_dir, CONTROLLER_WEIGHTS_CPT_NAME%epoch_idx)
-            # trainer_controller.save_controller(trainer_cpt_path)
-            # if args.save_main_model:
-            #     main_cpt_path = os.path.join(args.output_dir, WEIGHTS_CPT_NAME%epoch_idx)
-            #     output_config_path = os.path.join(args.output_dir, CONFIG_NAME)
-            #     trainer_main.save_model(main_cpt_path, output_config_path)
+        if args.do_eval:
+            if epoch_idx % args.save_epoch == 0:
+                if args.new_valid_policy:
+                    aug_policy = trainer_controller.get_policy()
+                aug_examples = generate_aug_examples(val_train_examples, aug_policy)
+                trainer_main.reset_model()
+                trainer_main.build_dataloader_and_optimizer(aug_examples)
+                trainer_main.train(aug_examples)
+                val_metrics = trainer_main.eval(val_examples)
+                logger.info("VAL_TRAIN_ACC on epoch {}: {}".format(epoch_idx, val_metrics["acc"]))
+                #
+                #
+                # trainer_cpt_path =  os.path.join(args.output_dir, CONTROLLER_WEIGHTS_CPT_NAME%epoch_idx)
+                # trainer_controller.save_controller(trainer_cpt_path)
+                # if args.save_main_model:
+                #     main_cpt_path = os.path.join(args.output_dir, WEIGHTS_CPT_NAME%epoch_idx)
+                #     output_config_path = os.path.join(args.output_dir, CONFIG_NAME)
+                #     trainer_main.save_model(main_cpt_path, output_config_path)
 
     #results_json_file = os.path.join(args.output_dir, "results.json")
     #with open(results_json_file, 'w') as fw:

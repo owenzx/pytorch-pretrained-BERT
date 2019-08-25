@@ -13,6 +13,9 @@ from allennlp.data.tokenizers import Token
 from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer
 from allennlp.data.dataset_readers.dataset_utils import Ontonotes, enumerate_spans
 
+from stanfordnlp.server import CoreNLPClient
+from utils import get_sentence_features, get_stanford_tokens, inv_map
+
 import torch
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
@@ -79,18 +82,30 @@ class MyConllCorefReader(DatasetReader):
                  token_indexers: Dict[str, TokenIndexer] = None,
                  lazy: bool = False,
                  bert_model_name: str=None,
-                 max_pieces: int = 512) -> None:
+                 max_pieces: int = 512,
+                 lowercase_input: bool=None,
+                 extract_features: bool=False) -> None:
         super().__init__(lazy)
         self._max_span_width = max_span_width
         self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
         if bert_model_name is not None:
             self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
-            self.lowercase_input = "uncased" in bert_model_name
+            if lowercase_input is None:
+                self.lowercase_input = "uncased" in bert_model_name
+            else:
+                self.lowercase_input = lowercase_input
             self.max_pieces = max_pieces
         else:
             self.bert_tokenizer = None
             self.lowercase_input = False
             self.max_pieces=9999999999999
+        CUSTOM_PROPS = {'tokenize.whitespace':True}
+        if extract_features:
+            #self.feature_extractor = CoreNLPClient(annotators=['tokenize', 'ssplit', 'pos', 'lemma', 'ner', 'parse', 'depparse', 'coref'], timeout=60000, memory='16G', be_quiet=False)
+            self.feature_extractor = CoreNLPClient(annotators=['tokenize', 'ssplit', 'coref' ], timeout=60000, memory='16G', be_quiet=True, properties=CUSTOM_PROPS)
+            #self.debug_extractor = CoreNLPClient(annotators=['tokenize'], timeout=60000, memory='16G', be_quiet=False, host=12345)
+        else:
+            self.feature_extractor = None
 
 
     @overrides
@@ -99,22 +114,53 @@ class MyConllCorefReader(DatasetReader):
         file_path = cached_path(file_path)
 
         ontonotes_reader = Ontonotes()
-        for sentences in ontonotes_reader.dataset_document_iterator(file_path):
-            clusters: DefaultDict[int, List[Tuple[int, int]]] = collections.defaultdict(list)
+        for long_sentences in ontonotes_reader.dataset_document_iterator(file_path):
 
-            total_tokens = 0
-            for sentence in sentences:
-                for typed_span in sentence.coref_spans:
-                    # Coref annotations are on a _per sentence_
-                    # basis, so we need to adjust them to be relative
-                    # to the length of the document.
-                    span_id, (start, end) = typed_span
-                    clusters[span_id].append((start + total_tokens,
-                                              end + total_tokens))
-                total_tokens += len(sentence.words)
+            long_sentences = list(long_sentences)
 
-            canonical_clusters = canonicalize_clusters(clusters)
-            yield self.text_to_instance([s.words for s in sentences], canonical_clusters)
+            #divide sentences into different chunks
+            tokens_sens = [len(sentence.words) for sentence in long_sentences]
+            sum_tokens_sens = [sum(tokens_sens[0:i]) for i in range(len(tokens_sens))]
+
+            #Cut every 400 words
+            chunk_sentences = []
+            sum_last_chunk = 0
+            last_sen_idx = -1
+            max_num_tokens = 400
+            for i in range(len(sum_tokens_sens)):
+                if i == len(sum_tokens_sens) - 1 or ((sum_tokens_sens[i+1]-sum_last_chunk) // max_num_tokens) > ((sum_tokens_sens[i]-sum_last_chunk) // max_num_tokens)  :
+                    if type(long_sentences[last_sen_idx+1:i+2]) is not list:
+                        chunk_sentences.append(list(long_sentences[last_sen_idx+1:i+2]))
+                    else:
+                        chunk_sentences.append(long_sentences[last_sen_idx+1:i+2])
+                    sum_last_chunk = sum_tokens_sens[i]
+                    last_sen_idx = i
+            if last_sen_idx != len(sum_tokens_sens) - 2:
+                for i in range(len(sum_tokens_sens)-2, -1, -1):
+                    if i == 0 or ((sum_tokens_sens[-1] - sum_tokens_sens[i]) // max_num_tokens) > ((sum_tokens_sens[-1] - sum_tokens_sens[i+1]) // max_num_tokens):
+                        chunk_sentences[-1] = long_sentences[i:]
+            if len(long_sentences) == 1:
+                chunk_sentences = [long_sentences]
+
+
+            for sentences in chunk_sentences:
+                total_tokens = 0
+                clusters: DefaultDict[int, List[Tuple[int, int]]] = collections.defaultdict(list)
+
+                for sentence in sentences:
+                    for typed_span in sentence.coref_spans:
+                        # Coref annotations are on a _per sentence_
+                        # basis, so we need to adjust them to be relative
+                        # to the length of the document.
+                        span_id, (start, end) = typed_span
+                        clusters[span_id].append((start + total_tokens,
+                                                  end + total_tokens))
+                    total_tokens += len(sentence.words)
+
+                canonical_clusters = canonicalize_clusters(clusters)
+                _ =  self.text_to_instance([s.words for s in sentences], canonical_clusters)
+                yield self.text_to_instance([s.words for s in sentences], canonical_clusters)
+        #yield self.text_to_instance([s.words for s in sentences], canonical_clusters)
 
     def _wordpiece_tokenize_input(self, tokens: List[str]) -> Tuple[List[str], List[int]]:
         """
@@ -176,15 +222,37 @@ class MyConllCorefReader(DatasetReader):
         flattened_sentences = [self._normalize_word(word)
                                for sentence in sentences
                                for word in sentence]
-        tokens = [Token(word) for word in flattened_sentences]
+
+        stanford_tokens = get_stanford_tokens(self.feature_extractor, flattened_sentences)
+        try:
+            assert(len(flattened_sentences) == len(stanford_tokens))
+        except:
+            print(flattened_sentences)
+            print(stanford_tokens)
+            print(len(flattened_sentences))
+            print(len(stanford_tokens))
+            exit()
+
+
 
         metadata: Dict[str, Any] = {"original_text": flattened_sentences}
+
+        if self.feature_extractor is not None:
+            sentences_features = get_sentence_features(self.feature_extractor, metadata)
+            metadata['features'] = sentences_features
+
+        tokens = [Token(word) for word in flattened_sentences]
+
         if gold_clusters is not None:
             metadata["clusters"] = gold_clusters
 
         if self.bert_tokenizer is not None:
             wordpieces, offsets, start_idx_maps, end_idx_maps = self._wordpiece_tokenize_input([t.text for t in tokens])
             metadata["offsets"] = offsets
+            metadata['start_idx_maps'] = start_idx_maps
+            metadata['end_idx_maps'] = end_idx_maps
+            metadata['rev_start_maps'] = inv_map(start_idx_maps)
+            metadata['rev_end_maps'] = inv_map(end_idx_maps)
             text_field = TextField([Token(t, text_id=self.bert_tokenizer.vocab[t]) for t in wordpieces][:self.max_pieces], token_indexers=self._token_indexers)
 
         else:
@@ -229,6 +297,11 @@ class MyConllCorefReader(DatasetReader):
                 for cluster in gold_clusters:
                     newclusters.append(set([(start_idx_maps[start], end_idx_maps[end]) for (start, end) in cluster]))
                 newmetadata['clusters'] = newclusters
+                newmetadata["tokenized_text"] = wordpieces
+                #copy other things from metadata
+                for k in metadata.keys():
+                    if k not in ['original_text', 'clusters', 'tokenized_text']:
+                        newmetadata[k] = metadata[k]
 
             metadata_field = MetadataField(newmetadata)
         else:
