@@ -3,6 +3,7 @@
 {
   "dataset_reader": {
     "type": "my_coref",
+    "cached_instance_path": "./cache/conll_train_aug_same.ins",
     "bert_model_name": "bert-base-uncased",
     "max_pieces": 512,
     "max_span_width": 25
@@ -46,7 +47,7 @@
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":4735
+      "num_steps_per_epoch":9470
     },
     "optimizer": {
       "type": "bert_adam",

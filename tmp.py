@@ -584,6 +584,35 @@ def cluster_error_ana():
 
 
 
+def check_if_json():
+    file_path = './tmp.out'
+    import json
+    with open(file_path, 'r') as fr:
+        lines = fr.readlines()
+
+    for line in lines:
+        pred = json.loads(line)
+        print(pred)
+        print(type(pred))
+        print(pred.keys())
+        exit()
+
+
+def check_mentions():
+    import pickle
+    from pytorch_pretrained_bert import BertTokenizer
+    bert_model_name = 'bert-base-uncased'
+    bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+    mention_save_path = './debug.corpus'
+    with open(mention_save_path, 'rb') as fr:
+        mention_list = pickle.load(fr)
+
+    for m in mention_list:
+        text = m['text']
+        new_mention = bert_tokenizer.wordpiece_tokenizer.tokenize(' '.join(text))
+        if '[UNK]' in new_mention:
+            print(text)
+            print(new_mention)
 
 
 
@@ -598,5 +627,7 @@ if __name__ == '__main__':
     #clean_wikicoref()
     #check_coref_doc_stats()
     #get_bert_ckpt_out()
-    cluster_error_ana()
+    #cluster_error_ana()
+    #check_if_json()
+    check_mentions()
 

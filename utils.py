@@ -6,6 +6,7 @@ from sklearn.metrics import matthews_corrcoef, f1_score
 from scipy.stats import pearsonr, spearmanr
 from data_processing import *
 import pickle
+from typing import Any, Dict, List, Optional, Tuple, DefaultDict, Set
 
 
 def inv_map(d):
@@ -170,7 +171,10 @@ for dom in mtl_domains:
     output_num['mtl-%s'%dom] = 2
 
 
-
+def bert_simple_detokenize(tokens):
+    text = ' '.join([x for x in tokens])
+    fine_text = text.replace(' ##', '')
+    return fine_text
 
 def simple_accuracy(preds, labels):
     return (preds == labels).mean()
@@ -454,6 +458,104 @@ def get_pair_features(m1, m2):
 
 def rm_sets_from_clusters(c):
     return [list(x) for x in c]
+
+
+def get_span_label_from_clusters(sentences, cluster_dict, text_field, max_span_width, max_pieces, flattened):
+    from allennlp.data.fields import Field, SpanField
+    from allennlp.data.dataset_readers.dataset_utils import enumerate_spans
+    spans: List[Field] = []
+    span_labels: Optional[List[int]] = []
+    sentence_offset = 0
+    for sentence in sentences:
+        for start, end in enumerate_spans(sentence,
+                                    offset = sentence_offset,
+                                    max_span_width = max_span_width):
+            if end - start >= max_span_width:
+                continue
+            if end >= max_pieces:
+                continue
+            #simple rule for bert tokens
+            try:
+                if (flattened[start][:2] == '##') or (end+1!=len(flattened) and flattened[end+1][:2]=='##') or ('[CLS]' in flattened[start:end+1]) or ('[SEP]'in flattened[start:end+1]):
+                    continue
+            except:
+                print(sentence)
+                print(start)
+                print(end)
+                exit()
+            if (start, end) in cluster_dict:
+                span_labels.append(cluster_dict[(start, end)])
+            else:
+                span_labels.append(-1)
+            spans.append(SpanField(start, end, text_field))
+        sentence_offset += len(sentence)
+    return spans, span_labels
+
+def wordpiece_tokenize_input(tokens: List[str], lowercase_input:bool, bert_tokenizer) -> Tuple[List[str], List[int]]:
+    """
+    Convert a list of tokens to wordpiece tokens and offsets, as well as adding
+    BERT CLS and SEP tokens to the begining and end of the sentence.
+    """
+    word_piece_tokens: List[str] = []
+    offsets = []
+    cumulative = 0
+    start_idx_maps, end_idx_maps = dict(), dict()
+    for idx, token in enumerate(tokens):
+        if lowercase_input:
+            token = token.lower()
+        word_pieces = bert_tokenizer.wordpiece_tokenizer.tokenize(token)
+        start_idx_maps[idx] = cumulative
+        cumulative += len(word_pieces)
+        end_idx_maps[idx] = cumulative - 1
+        offsets.append(cumulative)
+        word_piece_tokens.extend(word_pieces)
+
+    wordpieces = ["[CLS]"] + word_piece_tokens + ["[SEP]"]
+
+    offsets = [x + 1 for x in offsets]
+    for k in start_idx_maps.keys():
+        start_idx_maps[k] = start_idx_maps[k] + 1
+    for k in end_idx_maps.keys():
+        end_idx_maps[k] = end_idx_maps[k] + 1
+    return wordpieces, offsets, start_idx_maps, end_idx_maps
+
+def get_chunk_sentences(long_sentences, max_num_tokens=400):
+    long_sentences = list(long_sentences)
+
+    #if len(long_sentences) == 1:
+    #    print("SINGLE_SENTENCE")
+    #    print(len(long_sentences))
+    #    print(type(long_sentences))
+    #    print(type(long_sentences[0]))
+    #    exit()
+    #    return [long_sentences]
+#
+#
+#    if len(long_sentences) != 1:
+#        print("MULTIPLE_SENTENCE")
+#        print(len(long_sentences))
+#        print(type(long_sentences))
+#        print(type(long_sentences[0]))
+#        exit()
+#        return [long_sentences]
+
+    len_tokens_sens = [len(sentence.words) for sentence in long_sentences]
+
+    chunk_sentences = []
+    current_sum = 0
+    start_idx = 0
+
+    for i, len_tok in enumerate(len_tokens_sens):
+        current_sum += len_tok
+        if i == len(len_tokens_sens) - 1:
+            chunk_sentences.append(long_sentences[start_idx:])
+        else:
+            if current_sum > max_num_tokens:
+                chunk_sentences.append(long_sentences[start_idx: i+1])
+                start_idx = i
+                current_sum = len_tok
+
+    return chunk_sentences
 
 
 if __name__ == '__main__':

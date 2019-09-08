@@ -329,6 +329,7 @@ class MyCoreferenceResolver(Model):
             output_dict["tokenized_text"] = [x["tokenized_text"] if "tokenized_text" in x.keys() else [""] for x in metadata]
             #remove sets to support json serialization
             output_dict['gold_clusters'] = [rm_sets_from_clusters(x["clusters"]) for x in metadata]
+            #output_dict["id"] = [x["sen_id"] for x in metadata]
 
         return output_dict
 

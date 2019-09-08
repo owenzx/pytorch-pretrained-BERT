@@ -3,6 +3,7 @@
 {
   "dataset_reader": {
     "type": "my_coref",
+    "cached_instance_path": "./debug_same.ist",
     "bert_model_name": "bert-base-uncased",
     "max_pieces": 512,
     "max_span_width": 25
@@ -16,14 +17,14 @@
     "mention_feedforward": {
         "input_dim": 2324,
         "num_layers": 2,
-        "hidden_dims": 600,
+        "hidden_dims": 150,
         "activations": "relu",
         "dropout": 0.2
     },
     "antecedent_feedforward": {
         "input_dim": 6992,
         "num_layers": 2,
-        "hidden_dims": 600,
+        "hidden_dims": 150,
         "activations": "relu",
         "dropout": 0.2
     },
@@ -46,7 +47,7 @@
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":4735
+      "num_steps_per_epoch":4738
     },
     "optimizer": {
       "type": "bert_adam",

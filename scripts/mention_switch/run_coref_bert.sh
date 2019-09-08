@@ -4,5 +4,5 @@ export COREF_TRAIN_DATA_PATH=/playpen/home/xzh/datasets/coref/allen/train.englis
 export COREF_DEV_DATA_PATH=/playpen/home/xzh/datasets/coref/allen/dev.english.v4_gold_conll
 export COREF_TEST_DATA_PATH=/playpen/home/xzh/datasets/coref/allen/test.english.v4_gold_conll
 
-allennlp train scripts/allen/coref_bert_tune_large.jsonnet -s outputs/coref_bert_baseline_0906 --include-package allen_packages
+allennlp train scripts/mention_switch/mentionswitch_noadd_same.jsonnet -s outputs/mentionswitch_noadd_same_0908 --include-package allen_packages
 
