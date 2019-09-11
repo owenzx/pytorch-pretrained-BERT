@@ -629,5 +629,5 @@ if __name__ == '__main__':
     #get_bert_ckpt_out()
     #cluster_error_ana()
     #check_if_json()
-    check_mentions()
+    #check_mentions()
 

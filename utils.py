@@ -7,6 +7,8 @@ from scipy.stats import pearsonr, spearmanr
 from data_processing import *
 import pickle
 from typing import Any, Dict, List, Optional, Tuple, DefaultDict, Set
+from allennlp.data.fields import TextField
+from allennlp.data.tokenizers import Token
 
 
 def inv_map(d):
@@ -556,6 +558,14 @@ def get_chunk_sentences(long_sentences, max_num_tokens=400):
                 current_sum = len_tok
 
     return chunk_sentences
+
+
+def make_text_tensors(tokenized_text, max_pieces, bert_tokenizer, fake_token_indexer):
+    text_field = TextField([Token(word, text_id=bert_tokenizer.vocab[word]) for word in tokenized_text][:max_pieces], fake_token_indexer)
+    return text_field
+
+
+
 
 
 if __name__ == '__main__':

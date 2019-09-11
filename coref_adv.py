@@ -337,7 +337,7 @@ def convert_dict_to_instances(dict_data, bert_tokenizer, golden_clusters=True, m
                     cluster_dict[tuple(mention)] = cluster_id
 
             text_field = TextField([Token(word, text_id=bert_tokenizer.vocab[word]) for word in flatten_sentences][:max_pieces], fake_token_indexer)
-            spans, span_labels = get_span_label_from_clusters(unflattened_sentences, clusters, text_field, max_span_width=25, max_pieces=max_pieces, flattened=flatten_sentences)
+            spans, span_labels = get_span_label_from_clusters(unflattened_sentences, cluster_dict, text_field, max_span_width=25, max_pieces=max_pieces, flattened=flatten_sentences)
             span_field = ListField(spans)
             span_label_field = SequenceLabelField(span_labels, span_field)
 
@@ -543,6 +543,30 @@ def get_augmented_labeled_data(labeled_instance_path=None, load_mentions_path=No
         pickle.dump(new_instances, fw)
 
 
+def tmp_fix():
+    #ONLY USED FOR TEMP FIX!!!
+
+    bert_model_name = 'bert-base-uncased'
+    bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+    lowercase = True
+
+    result_json_path = './cache/conll_train_aug_same.json'
+    result_path = './cache/conll_train_aug_same_fix.ins'
+
+    total_examples = []
+    with open(result_json_path, 'r') as fr:
+        lines = fr.readlines()
+    for line in lines:
+        example = json.loads(line)
+        total_examples.append(example)
+
+    new_instances = convert_dict_to_instances(total_examples, bert_tokenizer, True)
+
+    with open(result_path, 'wb') as fw:
+        pickle.dump(new_instances, fw)
+
+
+
 def run_debug_func(labeled_instance_path=None, load_mentions_path=None, result_json_path=None, result_path=None, self_augment=True):
     bert_model_name = 'bert-base-uncased'
     bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
@@ -585,5 +609,6 @@ if __name__ == '__main__':
     #get_debug_ist()
     #check_mask_difficulty(json_file_path='./tmp.out.2')
     #dump_train_instances(max_span_width=25, max_pieces=512, bert_model_name='bert-base-uncased', train_data_path='./datasets/coref/allen/train.english.v4_gold_conll', dump_path = './cache/conll_train.ins')
-    get_augmented_labeled_data(labeled_instance_path='./cache/conll_train.ins', load_mentions_path='./cache/debug_conll_train.corpus', result_json_path='./cache/conll_train_aug_same.json', result_path= './cache/conll_train_aug_same.ins', self_augment=True)
+    #get_augmented_labeled_data(labeled_instance_path='./cache/conll_train.ins', load_mentions_path='./cache/debug_conll_train.corpus', result_json_path='./cache/conll_train_aug_same.json', result_path= './cache/conll_train_aug_same.ins', self_augment=True)
+    tmp_fix()
     #run_debug_func(labeled_instance_path='./cache/conll_train.ins', load_mentions_path='./cache/debug_conll_train.corpus', result_json_path='./cache/conll_train_aug_same.json', result_path= './cache/conll_train_aug_same.ins', self_augment=True)

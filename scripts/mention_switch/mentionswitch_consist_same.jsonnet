@@ -3,7 +3,6 @@
 {
   "dataset_reader": {
     "type": "my_coref",
-    "cached_instance_path": "./cache/conll_train_aug_same_fix.ins",
     "bert_model_name": "bert-base-uncased",
     "max_pieces": 512,
     "max_span_width": 25
@@ -14,6 +13,8 @@
   "model": {
     "type": "my_coref",
     "bert_model": "bert-base-uncased",
+    "consistency_loss": true,
+    "mention_dict_path": "./cache/debug_conll_train.corpus",
     "mention_feedforward": {
         "input_dim": 2324,
         "num_layers": 2,
@@ -47,7 +48,7 @@
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":9470
+      "num_steps_per_epoch":4735
     },
     "optimizer": {
       "type": "bert_adam",

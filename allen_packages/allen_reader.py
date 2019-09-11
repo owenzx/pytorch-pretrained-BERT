@@ -133,6 +133,7 @@ class MyConllCorefReader(DatasetReader):
             file_path = cached_path(file_path)
 
             ontonotes_reader = Ontonotes()
+            i = 0
             for long_sentences in ontonotes_reader.dataset_document_iterator(file_path):
 
                 chunk_sentences = get_chunk_sentences(long_sentences, max_num_tokens=400)
@@ -157,6 +158,12 @@ class MyConllCorefReader(DatasetReader):
                     sen_id = str(sentences[0].document_id) + ':' + str(sentences[0].sentence_id)
                     instance = self.text_to_instance([s.words for s in sentences], canonical_clusters, sen_id)
                     instances_list.append(instance)
+                    i += 1
+                    #if i < 356:
+                    #    continue
+                    #print(i)
+                    #if i > 400:
+                    #    exit()
                     yield instance
 
             #yield self.text_to_instance([s.words for s in sentences], canonical_clusters)
