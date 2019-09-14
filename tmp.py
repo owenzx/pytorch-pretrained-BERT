@@ -618,6 +618,39 @@ def check_mentions():
 
 
 
+def merge_unlabeled_data():
+    """try to merge files from cnn/dailynews to a json list file"""
+    import os
+    import json
+    unlabeled_dir_path = '/ssd-playpen/home/xzh/download/dailymail/stories'
+
+    texts = []
+
+    for filename in os.listdir(unlabeled_dir_path):
+        if filename.endswith(".story"):
+            with open(os.path.join(unlabeled_dir_path, filename), 'r') as fr:
+                lines = fr.readlines()
+            text = []
+            for line in lines:
+                if len(line) > 1:  #only contains \n#
+                    if line[:10] == '@highlight':
+                        break
+                    text.append(line[:-1])
+        exp = {'text': text,
+                'file_name':filename}
+        texts.append(exp)
+
+    with open('/ssd-playpen/home/xzh/datasets/unlabeled_news/dailymail.json', 'w') as fw:
+        for exp in texts:
+            json.dump(exp, fw)
+
+
+
+
+
+
+
+
 if __name__ == '__main__':
     #check_data()
     #read_coref_data()
@@ -630,4 +663,5 @@ if __name__ == '__main__':
     #cluster_error_ana()
     #check_if_json()
     #check_mentions()
+    merge_unlabeled_data()
 

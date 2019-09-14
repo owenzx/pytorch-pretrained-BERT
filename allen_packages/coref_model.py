@@ -82,6 +82,8 @@ class MyCoreferenceResolver(Model):
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None,
                  consistency_loss: bool = False,
+                 semi_supervise = False,
+                 lambda_consist: float = 1.0,
                  mention_dict_path: Optional[str] = None) -> None:
         super(MyCoreferenceResolver, self).__init__(vocab, regularizer)
 
@@ -135,9 +137,15 @@ class MyCoreferenceResolver(Model):
             self._lexical_dropout = torch.nn.Dropout(p=lexical_dropout)
         else:
             self._lexical_dropout = lambda x: x
-        if consistency_loss is True:
-            self.forward =  self.forward_consistency
+        if semi_supervise is True or consistency_loss is True:
             self.mention_switcher = MentionSwitcher(bert_model_name=bert_model, mention_dict_path=mention_dict_path, vocab=vocab, max_span_width=self._max_span_width)
+            self.lambda_consist = lambda_consist
+            if semi_supervise is True:
+                self.forward = self.forward_ssl
+            elif consistency_loss is True:
+                self.forward = self.forward_consistency
+        else:
+            self.forward = self.forward_basic
         initializer(self)
 
 
@@ -145,7 +153,8 @@ class MyCoreferenceResolver(Model):
                             text: Dict[str, torch.LongTensor],
                             spans: torch.LongTensor,
                             span_labels: torch.LongTensor = None,
-                            metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
+                            metadata: List[Dict[str, Any]] = None,
+                            consist_only: bool = False) -> Dict[str, torch.Tensor]:
         # This is the forward function for a different loss function, here the loss is the normal loss + consistency loss, so we need to forward the model twice, with one foward first getting the prediction, then calls other function to have input for another forward pass, then calculate the consistency loss (+ normal loss)
 
         #First forward
@@ -222,7 +231,7 @@ class MyCoreferenceResolver(Model):
         output_dict = {"top_spans": top_spans,
                        "antecedent_indices": valid_antecedent_indices,
                        "predicted_antecedents": predicted_antecedents}
-        if span_labels is not None:
+        if span_labels is not None and not consist_only:
             # Find the gold labels for the spans which we kept.
             pruned_gold_labels = util.batched_index_select(span_labels.unsqueeze(-1),
                                                            top_span_indices,
@@ -280,7 +289,10 @@ class MyCoreferenceResolver(Model):
         output_dict['consis_loss'] = F.kl_div(coreference_log_probs, torch.exp(new_coref_log_probs))
 
             #output_dict["id"] = [x["sen_id"] for x in metadata]
-        output_dict["loss"] = output_dict["sl_loss"] + output_dict["consis_loss"]
+        if consist_only:
+            output_dict["loss"] = output_dict["sl_loss"] + self.lambda_consist * output_dict["consis_loss"]
+        else:
+            output_dict["loss"] = output_dict["consis_loss"]
         return output_dict
 
 
@@ -388,11 +400,21 @@ class MyCoreferenceResolver(Model):
 
 
 
+    def forward_ssl(self,
+                    text: Dict[str, torch.LongTensor],
+                    spans: torch.LongTensor,
+                    span_labels: torch.LongTensor = None,
+                    metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
+        if span_labels is not None:
+            return self.forward_basic(text, spans, span_labels, metadata)
+        else:
+            return self.forward_consistency(text, spans, span_labels, metadata, consist_only=True)
 
 
 
-    @overrides
-    def forward(self,  # type: ignore
+
+    #@overrides
+    def forward_basic(self,  # type: ignore
                 text: Dict[str, torch.LongTensor],
                 spans: torch.LongTensor,
                 span_labels: torch.LongTensor = None,

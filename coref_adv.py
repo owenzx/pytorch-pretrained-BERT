@@ -20,13 +20,39 @@ import csv
 
 def extract_mentions_from_findmypast(tsv_path):
     #extract mentions from the FindMyPast entities list
-    with open(tsv_path, 'r') as fr:
-        reader = csv.reader(fr, delimiter='\t', quotechar=None)
-        lines = []
-        for line in reader:
-            print(line)
-            exit()
+    mentions = []
+    unique_mentions = set()
+    CUSTOM_PROPS = {'tokenize.whitespace': True}
+    with CoreNLPClient(annotators=['tokenize', 'ssplit', 'coref'], timeout=6000000, memory='16G', be_quiet=True, properties=CUSTOM_PROPS) as client:
+        with open(tsv_path, 'r') as fr:
+            reader = csv.reader(fr, delimiter='\t', quotechar=None)
+            for i, line in enumerate(tqdm(reader)):
+                #skip header
+                if i==0:
+                    continue
+                mention = line[0]
 
+                ann = client.annotate(mention)
+                ann_mentions = ann.mentionsForCoref
+                #print(len(ann_mentions))
+
+                #prop_dict = {'mentionType': [], 'number':[], 'animacy':[], 'person':[], 'nerString':[], 'gender': []}
+                #for m in ann_mentions:
+
+                if len(ann_mentions)==0:
+                    continue
+
+                m = ann_mentions[-1]
+                if m.mentionType == 'PRONOMINAL':
+                    continue
+                if mention not in unique_mentions:
+                    unique_mentions.add(mention)
+                    mentions.append({'text':mention.split(' '), 'mentionType': m.mentionType, 'number':m.number, 'animacy':m.animacy, 'person':m.person, 'nerString':m.nerString, 'gender':m.gender})
+    #for m in mentions:
+    #    print(m)
+    #exit()
+
+    return mentions
 
 
 
@@ -417,7 +443,6 @@ def main(load_mentions_path=None, lowercase=True):
         mention_save_path = './cache/conll_dev_mentions.dict'
         with open(mention_save_path, 'wb') as fw:
             pickle.dump(new_mention_dict, fw)
-
     predict_file = './tmp.out.2'
     #predict file is in the format of json
     with open(predict_file, 'r') as fr:
@@ -544,7 +569,7 @@ def get_augmented_labeled_data(labeled_instance_path=None, load_mentions_path=No
 
 
 def tmp_fix():
-    #ONLY USED FOR TEMP FIX!!!
+    """ONLY USED FOR TEMP FIX!!!"""
 
     bert_model_name = 'bert-base-uncased'
     bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
@@ -601,14 +626,60 @@ def run_debug_func(labeled_instance_path=None, load_mentions_path=None, result_j
                 exit()
 
 
+def create_more_mention_dict(tsv_path, save_path):
+    mentions = extract_mentions_from_findmypast(tsv_path=tsv_path)
+    new_mention_dict = organize_mention_list_to_dict(mentions)
+
+    with open(save_path, 'wb') as fw:
+        pickle.dump(new_mention_dict, fw)
+
+
+def get_switched_test_data(load_mention_path, pred_path, output_name, lowercase=True):
+    with open(load_mention_path, 'rb') as fr:
+        new_mention_dict = pickle.load(fr)
+
+    with open(pred_path, 'r') as fr:
+        lines = fr.readlines()
+
+
+    examples = []
+    for line in lines:
+        example = json.loads(line)
+        examples.append(example)
+
+    bert_model_name = 'bert-base-uncased'
+    #bert_model_name = './saved_bert'
+    bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+
+    new_examples = switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase, cluster_key="gold_clusters")
+
+    json_out_path = output_name + '.json'
+    instance_out_path = output_name + '.ist'
+
+    with open(json_out_path, 'w') as fw:
+        for example in new_examples:
+            json.dump(example, fw)
+            fw.write('\n')
+
+    new_instances = convert_dict_to_instances(new_examples, bert_tokenizer, golden_clusters=True)
+    with open(instance_out_path, 'wb') as fw:
+        pickle.dump(new_instances, fw)
+
 
 if __name__ == '__main__':
-    #main(load_mentions_path='./debug.corpus')
+    #main()
     #main(load_mentions_path='./debug.corpus')
     #extract_mentions_from_findmypast(tsv_path='./entities.tsv')
     #get_debug_ist()
     #check_mask_difficulty(json_file_path='./tmp.out.2')
     #dump_train_instances(max_span_width=25, max_pieces=512, bert_model_name='bert-base-uncased', train_data_path='./datasets/coref/allen/train.english.v4_gold_conll', dump_path = './cache/conll_train.ins')
     #get_augmented_labeled_data(labeled_instance_path='./cache/conll_train.ins', load_mentions_path='./cache/debug_conll_train.corpus', result_json_path='./cache/conll_train_aug_same.json', result_path= './cache/conll_train_aug_same.ins', self_augment=True)
-    tmp_fix()
+    #tmp_fix()
     #run_debug_func(labeled_instance_path='./cache/conll_train.ins', load_mentions_path='./cache/debug_conll_train.corpus', result_json_path='./cache/conll_train_aug_same.json', result_path= './cache/conll_train_aug_same.ins', self_augment=True)
+    #extract_mentions_from_findmypast(tsv_path='./datasets/entities.tsv')
+    #create_more_mention_dict(tsv_path='./datasets/entities.tsv', save_path='./cache/findmypast.corpus')
+    get_switched_test_data(load_mention_path='./cache/conll_dev_mentions.dict', pred_path='./cache/dev_pred.json', output_name='./cache/conll_dev_gt_switch_dev')
+    get_switched_test_data(load_mention_path='./cache/debug_conll_train.corpus', pred_path='./cache/dev_pred.json', output_name='./cache/conll_dev_gt_switch_train')
+    get_switched_test_data(load_mention_path='./cache/findmypast.corpus', pred_path='./cache/dev_pred.json', output_name='./cache/conll_dev_gt_switch_find')
+
+
