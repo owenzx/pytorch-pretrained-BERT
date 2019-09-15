@@ -8,6 +8,7 @@ from allennlp.modules.token_embedders.embedding import Embedding
 from allennlp.nn import util
 
 from allennlp.common.checks import ConfigurationError
+import numpy as np
 
 
 @SpanExtractor.register("custom_endpoint")
@@ -103,6 +104,8 @@ class CustomEndpointSpanExtractor(SpanExtractor):
         if not self._use_exclusive_start_indices:
             start_embeddings = util.batched_index_select(sequence_tensor, span_starts)
             end_embeddings = util.batched_index_select(sequence_tensor, span_ends)
+            s1 = span_starts.cpu().numpy()
+            s2 = span_ends.cpu().numpy()
 
         else:
             # We want `exclusive` span starts, so we remove 1 from the forward span starts
@@ -138,12 +141,6 @@ class CustomEndpointSpanExtractor(SpanExtractor):
                 span_widths = span_ends - span_starts
 
             span_width_embeddings = self._span_width_embedding(span_widths)
-            print(combined_tensors.shape)
-            print(span_width_embeddings.shape)
-            print("START!!!")
-            print(start_embeddings)
-            print("END!!!")
-            print(end_embeddings)
             return torch.cat([combined_tensors, span_width_embeddings], -1)
 
         if span_indices_mask is not None:

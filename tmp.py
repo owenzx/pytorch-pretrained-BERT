@@ -622,7 +622,7 @@ def merge_unlabeled_data():
     """try to merge files from cnn/dailynews to a json list file"""
     import os
     import json
-    unlabeled_dir_path = '/ssd-playpen/home/xzh/download/dailymail/stories'
+    unlabeled_dir_path = '/ssd-playpen/home/xzh/download/cnn_s/stories'
 
     texts = []
 
@@ -640,9 +640,47 @@ def merge_unlabeled_data():
                 'file_name':filename}
         texts.append(exp)
 
-    with open('/ssd-playpen/home/xzh/datasets/unlabeled_news/dailymail.json', 'w') as fw:
+    with open('/ssd-playpen/home/xzh/datasets/unlabeled_news/cnn.json', 'w') as fw:
         for exp in texts:
             json.dump(exp, fw)
+            fw.write('\n')
+
+
+
+def tokenize_unlabeled_data():
+    import stanfordnlp
+    import json
+    from tqdm import tqdm
+    untoken_path = '/ssd-playpen/home/xzh/datasets/unlabeled_news/cnn.json'
+    #untoken_path = '/ssd-playpen/home/xzh/datasets/unlabeled_news/dailymail.json'
+    token_path = untoken_path[:-5] + '.tokenized.json'
+
+    results = []
+
+    nlp = stanfordnlp.Pipeline(processors='tokenize', lang='en', models_dir='/ssd-playpen/home/xzh/stanfordnlp_resources')
+
+    with open(untoken_path, 'r') as fr:
+        lines = fr.readlines()
+    for line in tqdm(lines):
+        exp = json.loads(line)
+        text = exp['text']
+        if len(text) == 0:
+            continue
+        file_name = exp['file_name']
+        passage = ' '.join(text)
+        tokenized = nlp(passage)
+        sentences = tokenized.sentences
+        sentences_token_list = [ [token.text for token in sentence.tokens] for sentence in sentences]
+        results.append({'tokens':sentences_token_list, 'file_name':file_name})
+
+    with open(token_path, 'w') as fw:
+        for r in results:
+            json.dump(r, fw)
+            fw.write('\n')
+
+
+
+
 
 
 
@@ -663,5 +701,6 @@ if __name__ == '__main__':
     #cluster_error_ana()
     #check_if_json()
     #check_mentions()
-    merge_unlabeled_data()
+    #merge_unlabeled_data()
+    tokenize_unlabeled_data()
 

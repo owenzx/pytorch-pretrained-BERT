@@ -14,6 +14,10 @@
   "model": {
     "type": "my_coref",
     "bert_model": "bert-base-uncased",
+    "semi_supervise": true,
+    "mention_dict_path": "./cache/debug_conll_train.corpus",
+    "lambda_consist": 1.0,
+    "consistency_loss": true,
     "mention_feedforward": {
         "input_dim": 2324,
         "num_layers": 2,

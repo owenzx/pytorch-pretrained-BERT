@@ -6,6 +6,7 @@ import datetime
 import traceback
 import re
 from typing import Dict, Optional, List, Tuple, Union, Iterable, Any, NamedTuple
+from itertools import cycle
 
 import torch
 import torch.optim.lr_scheduler
@@ -39,6 +40,24 @@ logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
 
+def merge_generators(a, b, step_a=1, step_b=1):
+    i = 0
+    b = cycle(b)
+    unit_step = step_a + step_b
+    while True:
+        try:
+            if i < step_a:
+                yield next(a)
+            else:
+                yield  next(b)
+            i = (i + 1) % unit_step
+        except StopIteration:
+            break
+
+
+
+
+
 
 @TrainerBase.register("ssl-trainer")
 class SSLTrainer(TrainerBase):
@@ -47,8 +66,10 @@ class SSLTrainer(TrainerBase):
                  optimizer: torch.optim.Optimizer,
                  iterator: DataIterator,
                  train_dataset: Iterable[Instance],
-                 unlabeled_dataset: Iterable[Instance],
+                 unlabeled_dataset: Optional[Iterable[Instance]] = None,
                  validation_dataset: Optional[Iterable[Instance]] = None,
+                 step_supervise: Optional[int] = 1,
+                 step_unlabel: Optional[int] = -1,
                  patience: Optional[int] = None,
                  validation_metric: str = "-loss",
                  validation_iterator: DataIterator = None,
@@ -195,6 +216,16 @@ class SSLTrainer(TrainerBase):
         self.unlabeled_data = unlabeled_dataset
         self._validation_data = validation_dataset
 
+
+        self.step_supervise = step_supervise
+        if step_unlabel == -1:
+            if unlabeled_dataset is None:
+                self.step_unlabel = 0
+            else:
+                self.step_unlabel = 1
+        else:
+            self.step_unlabel = step_unlabel
+
         if patience is None:  # no early stopping
             if validation_dataset:
                 logger.warning('You provided a validation dataset but patience was set to None, '
@@ -306,6 +337,10 @@ class SSLTrainer(TrainerBase):
                                             shuffle=self.shuffle)
         train_generator = lazy_groups_of(raw_train_generator, num_gpus)
         num_training_batches = math.ceil(self.iterator.get_num_batches(self.train_data)/num_gpus)
+        raw_unlabeled_generator = self.iterator(self.unlabeled_data,
+                                                num_epochs=1,
+                                                shuffle=self.shuffle)
+        unlabeled_generator = lazy_groups_of(raw_unlabeled_generator, num_gpus)
         self._last_log = time.time()
         last_save_time = time.time()
 
@@ -317,10 +352,16 @@ class SSLTrainer(TrainerBase):
 
 
         logger.info("Training")
-        train_generator_tqdm = Tqdm.tqdm(train_generator,
-                                         total=num_training_batches)
+        mix_generator = merge_generators(train_generator, unlabeled_generator, self.step_supervise, self.step_unlabel)
+
+        #train_generator_tqdm = Tqdm.tqdm(train_generator,
+        #                                 total=num_training_batches)
+
+        train_generator_tqdm = Tqdm.tqdm(mix_generator,
+                                         total = num_training_batches / (self.step_supervise) * (self.step_supervise + self.step_unlabel))
+
         cumulative_batch_size = 0
-        for batch_group in train_generator_tqdm:
+        for i, batch_group in enumerate(train_generator_tqdm):
             batches_this_epoch += 1
             self._batch_num_total += 1
             batch_num_total = self._batch_num_total
@@ -376,7 +417,10 @@ class SSLTrainer(TrainerBase):
                 self._tensorboard.log_parameter_and_gradient_statistics(self.model, batch_grad_norm)
                 self._tensorboard.log_learning_rates(self.model, self.optimizer)
 
-                self._tensorboard.add_train_scalar("loss/loss_train", metrics["loss"])
+                if i % (self.step_supervise + self.unlabeled_data) < self.step_supervise:
+                    self._tensorboard.add_train_scalar("loss/loss_train", metrics["loss"])
+                else:
+                    self._tensorboard.add_train_scalar("loss/loss_unlabel", metrics["loss"])
                 self._tensorboard.log_metrics({"epoch_metrics/" + k: v for k, v in metrics.items()})
 
             if self._tensorboard.should_log_histograms_this_batch():
@@ -673,13 +717,29 @@ class SSLTrainer(TrainerBase):
         print(params.params)
         print(params.params.keys())
         dataset_reader = DatasetReader.from_params(deepcopy(params.get("dataset_reader")))
-        unlabeled_data = dataset_reader.read(params.pop("unl_data_path"))
+        unlabel_path = params.pop("unl_data_path", None)
+        if unlabel_path is not None:
+            print("HELLLLLLLLLLO!")
+            print(dataset_reader._cache_directory)
+            try:
+                print(dataset_reader._get_cache_location_for_file_path(unlabel_path))
+            except:
+                print("CACHE ERROR")
+            unlabeled_data = dataset_reader._read_unlabeled(unlabel_path)
+        else:
+            unlabeled_data = None
         pieces = TrainerPieces.from_params(params, serialization_dir, recover)
         model = pieces.model
         iterator = pieces.iterator
         train_data = pieces.train_dataset
         validation_data = pieces.validation_dataset
         test_data = pieces.test_dataset
+
+
+
+
+
+
 
         #iterator = DataIterator.from_params(params.pop('iterator'))
         #train_data = dataset_reader.read(params.pop("train_data_path"))
@@ -691,7 +751,8 @@ class SSLTrainer(TrainerBase):
 
 
 
-
+        step_supervise = params.pop_int("step_supervise", 1)
+        step_unlabel = params.pop_int("step_unlabel", -1)
         patience = params.pop_int("patience", None)
         validation_metric = params.pop("validation_metric", "-loss")
         shuffle = params.pop_bool("shuffle", True)
@@ -756,6 +817,8 @@ class SSLTrainer(TrainerBase):
         params.assert_empty(cls.__name__)
         return cls(model, optimizer, iterator,
                    train_data, unlabeled_data, validation_data,
+                   step_supervise = step_supervise,
+                   step_unlabel = step_unlabel,
                    patience=patience,
                    validation_metric=validation_metric,
                    validation_iterator=validation_iterator,

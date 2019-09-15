@@ -231,6 +231,7 @@ class MyCoreferenceResolver(Model):
         output_dict = {"top_spans": top_spans,
                        "antecedent_indices": valid_antecedent_indices,
                        "predicted_antecedents": predicted_antecedents}
+        coreference_log_probs = util.masked_log_softmax(coreference_scores, top_span_mask)
         if span_labels is not None and not consist_only:
             # Find the gold labels for the spans which we kept.
             pruned_gold_labels = util.batched_index_select(span_labels.unsqueeze(-1),
@@ -255,7 +256,6 @@ class MyCoreferenceResolver(Model):
             # probability assigned to all valid antecedents. This is a valid objective for
             # clustering as we don't mind which antecedent is predicted, so long as they are in
             #  the same coreference cluster.
-            coreference_log_probs = util.masked_log_softmax(coreference_scores, top_span_mask)
             correct_antecedent_log_probs = coreference_log_probs + gold_antecedent_labels.log()
             negative_marginal_log_likelihood = -util.logsumexp(correct_antecedent_log_probs).sum()
             #negative_marginal_log_likelihood = -util.logsumexp(correct_antecedent_log_probs).mean()
@@ -271,7 +271,8 @@ class MyCoreferenceResolver(Model):
             output_dict["document"] = [x["original_text"] for x in metadata]
             output_dict["tokenized_text"] = [x["tokenized_text"] if "tokenized_text" in x.keys() else [""] for x in metadata]
             #remove sets to support json serialization
-            output_dict['gold_clusters'] = [rm_sets_from_clusters(x["clusters"]) for x in metadata]
+            if not consist_only:
+                output_dict['gold_clusters'] = [rm_sets_from_clusters(x["clusters"]) for x in metadata]
 
         # Create modified data for the second forward
         #print("YES?")
@@ -289,7 +290,7 @@ class MyCoreferenceResolver(Model):
         output_dict['consis_loss'] = F.kl_div(coreference_log_probs, torch.exp(new_coref_log_probs))
 
             #output_dict["id"] = [x["sen_id"] for x in metadata]
-        if consist_only:
+        if not consist_only:
             output_dict["loss"] = output_dict["sl_loss"] + self.lambda_consist * output_dict["consis_loss"]
         else:
             output_dict["loss"] = output_dict["consis_loss"]
@@ -406,8 +407,10 @@ class MyCoreferenceResolver(Model):
                     span_labels: torch.LongTensor = None,
                     metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
         if span_labels is not None:
+            print("SUPERVISE!!!")
             return self.forward_basic(text, spans, span_labels, metadata)
         else:
+            print("UNLABEL!!!")
             return self.forward_consistency(text, spans, span_labels, metadata, consist_only=True)
 
 

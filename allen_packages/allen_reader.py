@@ -17,6 +17,7 @@ from . ontonotes_reader import Ontonotes
 from stanfordnlp.server import CoreNLPClient
 from utils import get_sentence_features, get_stanford_tokens, inv_map, get_chunk_sentences
 import pickle
+import json
 
 import torch
 
@@ -121,8 +122,42 @@ class MyConllCorefReader(DatasetReader):
             self.feature_extractor = None
 
 
+
+    def _read_unlabeled(self, file_path: str):
+        print("READ_UNLABEL")
+        if self.save_instance is not None:
+            instances_list = []
+
+        file_path = cached_path(file_path)
+        i = 0
+
+        with open(file_path, 'r') as fr:
+            lines = fr.readlines()
+        for line in lines:
+            passage_example = json.loads(line)
+            passage_id = passage_example['file_name']
+            passage_tokens = passage_example['tokens']
+
+
+            chunk_sentences = get_chunk_sentences(passage_tokens, max_num_tokens=400, raw_str=True)
+
+            for sentences in chunk_sentences:
+                sen_id = passage_id
+                instance = self.text_to_instance(sentences, None, sen_id)
+                instances_list.append(instance)
+                i += 1
+                yield instance
+
+
+
+
     @overrides
     def _read(self, file_path: str):
+        print(file_path)
+        print('unlabel' in file_path)
+        if 'unlabel' in file_path:
+            return self._read_unlabeled(file_path)
+
         if self.cached_instance is not None:
             for instance in self.cached_instance:
                 yield instance
@@ -159,11 +194,6 @@ class MyConllCorefReader(DatasetReader):
                     instance = self.text_to_instance([s.words for s in sentences], canonical_clusters, sen_id)
                     instances_list.append(instance)
                     i += 1
-                    #if i < 356:
-                    #    continue
-                    #print(i)
-                    #if i > 400:
-                    #    exit()
                     yield instance
 
             #yield self.text_to_instance([s.words for s in sentences], canonical_clusters)
@@ -307,12 +337,12 @@ class MyConllCorefReader(DatasetReader):
             for start, end in enumerate_spans(sentence,
                                               offset=sentence_offset,
                                               max_span_width=self._max_span_width):
+                if self.bert_tokenizer is not None:
+                    if end_idx_maps[end] >= self.max_pieces:
+                        continue
+                    if end_idx_maps[end] - start_idx_maps[start] >= self._max_span_width:
+                        continue
                 if span_labels is not None:
-                    if self.bert_tokenizer is not None:
-                        if end_idx_maps[end] >= self.max_pieces:
-                            continue
-                        if end_idx_maps[end] - start_idx_maps[start] >= self._max_span_width:
-                            continue
                     if (start, end) in cluster_dict:
                         span_labels.append(cluster_dict[(start, end)])
                     else:
@@ -336,11 +366,11 @@ class MyConllCorefReader(DatasetReader):
                 for cluster in gold_clusters:
                     newclusters.append(set([(start_idx_maps[start], end_idx_maps[end]) for (start, end) in cluster]))
                 newmetadata['clusters'] = newclusters
-                newmetadata["tokenized_text"] = wordpieces
-                #copy other things from metadata
-                for k in metadata.keys():
-                    if k not in ['original_text', 'clusters', 'tokenized_text']:
-                        newmetadata[k] = metadata[k]
+            newmetadata["tokenized_text"] = wordpieces
+            #copy other things from metadata
+            for k in metadata.keys():
+                if k not in ['original_text', 'clusters', 'tokenized_text']:
+                    newmetadata[k] = metadata[k]
 
             metadata_field = MetadataField(newmetadata)
         else:

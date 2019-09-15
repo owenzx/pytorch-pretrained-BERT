@@ -521,7 +521,7 @@ def wordpiece_tokenize_input(tokens: List[str], lowercase_input:bool, bert_token
         end_idx_maps[k] = end_idx_maps[k] + 1
     return wordpieces, offsets, start_idx_maps, end_idx_maps
 
-def get_chunk_sentences(long_sentences, max_num_tokens=400):
+def get_chunk_sentences(long_sentences, max_num_tokens=400, raw_str=False):
     long_sentences = list(long_sentences)
 
     #if len(long_sentences) == 1:
@@ -540,8 +540,10 @@ def get_chunk_sentences(long_sentences, max_num_tokens=400):
 #        print(type(long_sentences[0]))
 #        exit()
 #        return [long_sentences]
-
-    len_tokens_sens = [len(sentence.words) for sentence in long_sentences]
+    if raw_str:
+        len_tokens_sens = [len(sentence) for sentence in long_sentences]
+    else:
+        len_tokens_sens = [len(sentence.words) for sentence in long_sentences]
 
     chunk_sentences = []
     current_sum = 0
