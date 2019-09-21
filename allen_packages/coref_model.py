@@ -137,16 +137,40 @@ class MyCoreferenceResolver(Model):
             self._lexical_dropout = torch.nn.Dropout(p=lexical_dropout)
         else:
             self._lexical_dropout = lambda x: x
-        if semi_supervise is True or consistency_loss is True:
+
+        # saving training configs (can be changed during training so that the behaviour can be controlled)
+        self.semi_supervise = semi_supervise
+        self.consistency_loss = consistency_loss
+
+
+        if consistency_loss is True:
             self.mention_switcher = MentionSwitcher(bert_model_name=bert_model, mention_dict_path=mention_dict_path, vocab=vocab, max_span_width=self._max_span_width)
             self.lambda_consist = lambda_consist
-            if semi_supervise is True:
-                self.forward = self.forward_ssl
-            elif consistency_loss is True:
-                self.forward = self.forward_consistency
-        else:
-            self.forward = self.forward_basic
+
+
+        #if semi_supervise is True or consistency_loss is True:
+        #    if semi_supervise is True:
+        #        self.forward = self.forward_ssl
+        #    elif consistency_loss is True:
+        #        self.forward = self.forward_consistency
+        #else:
+        #    self.forward = self.forward_basic
         initializer(self)
+
+
+
+    def forward(self,
+                text: Dict[str, torch.LongTensor],
+                spans: torch.LongTensor,
+                span_labels: torch.LongTensor = None,
+                metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
+        if self.semi_supervise:
+            return self.forward_ssl(text, spans, span_labels, metadata)
+        else:
+            if self.consistency_loss:
+                return self.forward_consistency(text, spans, span_labels, metadata)
+            else:
+                return self.forward_basic(text, spans, span_labels, metadata)
 
 
     def forward_consistency(self,
@@ -407,13 +431,9 @@ class MyCoreferenceResolver(Model):
                     span_labels: torch.LongTensor = None,
                     metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
         if span_labels is not None:
-            print("SUPERVISE!!!")
             return self.forward_basic(text, spans, span_labels, metadata)
         else:
-            print("UNLABEL!!!")
             return self.forward_consistency(text, spans, span_labels, metadata, consist_only=True)
-
-
 
 
     #@overrides
@@ -614,7 +634,8 @@ class MyCoreferenceResolver(Model):
             output_dict["document"] = [x["original_text"] for x in metadata]
             output_dict["tokenized_text"] = [x["tokenized_text"] if "tokenized_text" in x.keys() else [""] for x in metadata]
             #remove sets to support json serialization
-            output_dict['gold_clusters'] = [rm_sets_from_clusters(x["clusters"]) for x in metadata]
+            if span_labels is not None:
+                output_dict['gold_clusters'] = [rm_sets_from_clusters(x["clusters"]) for x in metadata]
             #output_dict["id"] = [x["sen_id"] for x in metadata]
 
         return output_dict

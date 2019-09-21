@@ -3,20 +3,21 @@
 {
   "dataset_reader": {
     "type": "my_coref",
-    "bert_model_name": "./saved_bert",
-    "lowercase_input": true,
+    "bert_model_name": "bert-base-uncased",
     "max_pieces": 512,
     "max_span_width": 25
   },
   "train_data_path": std.extVar("COREF_TRAIN_DATA_PATH"),
+  "unl_data_path": std.extVar("COREF_UNL_DATA_PATH"),
   "validation_data_path": std.extVar("COREF_DEV_DATA_PATH"),
   "test_data_path": std.extVar("COREF_TEST_DATA_PATH"),
   "model": {
     "type": "my_coref",
-    "bert_model": "./saved_bert/",
+    "bert_model": "bert-base-uncased",
+    "semi_supervise": true,
+    "mention_dict_path": "./cache/debug_conll_train.corpus",
     "lambda_consist": 0.1,
     "consistency_loss": true,
-    "mention_dict_path": "./cache/debug_conll_train.corpus",
     "mention_feedforward": {
         "input_dim": 2324,
         "num_layers": 2,
@@ -44,14 +45,16 @@
     "batch_size": 1
   },
   "trainer": {
+    "type": "ssl-trainer",
+    "gradient_accumulation_steps": 2,
+    "gradient_accumulation_normalization": false,
     "num_epochs": 20,
-    "ssl_start_epoch": 10,
     "cuda_device" : 0,
     "validation_metric": "+coref_f1",
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":4735
+      "num_steps_per_epoch":9470
     },
     "optimizer": {
       "type": "bert_adam",

@@ -78,7 +78,9 @@ class MentionSwitcher(object):
         return full_span_mapping
 
 
-    def get_switch_mention_text_and_spans(self, output_dict, old_spans):
+    def get_switch_mention_text_and_spans(self, output_dict, old_spans, switch_type='simple'):
+        assert switch_type in ['simple', 'switch_pron']
+        # if simple, only switching new mentions to non-pronouns, if switch_pron, also randomly change some pronoun (actually 50%)
         switch_clusters = output_dict['clusters'][0]
         #print(switch_clusters)
         #print(output_dict)
@@ -144,7 +146,14 @@ class MentionSwitcher(object):
                 span_text = tokenized_text[l:r+1]
                 m_features = get_mention_features(span_text, self.client)
                 if m_features['mentionType'] == 'PRONOMINAL':
-                    continue
+                    if switch_type == 'simple':
+                        continue
+                    elif switch_type == 'switch_pron':
+                        rand = np.random.randint(2)
+                        if rand == 1:
+                            switchable_mentions.append((l,r))
+                        continue
+
                 switchable_mentions.append((l,r))
                 non_empty = True
                 for k in m_features.keys():

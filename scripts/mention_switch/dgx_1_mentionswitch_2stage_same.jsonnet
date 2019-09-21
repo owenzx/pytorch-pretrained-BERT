@@ -15,6 +15,7 @@
     "type": "my_coref",
     "bert_model": "./saved_bert/",
     "lambda_consist": 0.1,
+    "semi_supervise": false,
     "consistency_loss": true,
     "mention_dict_path": "./cache/debug_conll_train.corpus",
     "mention_feedforward": {
@@ -44,8 +45,9 @@
     "batch_size": 1
   },
   "trainer": {
+    "type": "ssl-trainer",
     "num_epochs": 20,
-    "ssl_start_epoch": 10,
+    "consist_start_epoch": 10,
     "cuda_device" : 0,
     "validation_metric": "+coref_f1",
     "learning_rate_scheduler": {

@@ -124,9 +124,7 @@ class MyConllCorefReader(DatasetReader):
 
 
     def _read_unlabeled(self, file_path: str):
-        print("READ_UNLABEL")
-        if self.save_instance is not None:
-            instances_list = []
+        instances_list = []
 
         file_path = cached_path(file_path)
         i = 0
@@ -144,19 +142,39 @@ class MyConllCorefReader(DatasetReader):
             for sentences in chunk_sentences:
                 sen_id = passage_id
                 instance = self.text_to_instance(sentences, None, sen_id)
-                instances_list.append(instance)
+                #instances_list.append(instance)
                 i += 1
                 yield instance
+        #return instances_list
 
 
 
 
     @overrides
     def _read(self, file_path: str):
-        print(file_path)
-        print('unlabel' in file_path)
         if 'unlabel' in file_path:
-            return self._read_unlabeled(file_path)
+            #return self._read_unlabeled(file_path)
+            instances_list = []
+
+            file_path = cached_path(file_path)
+            i = 0
+
+            with open(file_path, 'r') as fr:
+                lines = fr.readlines()
+            for line in lines:
+                passage_example = json.loads(line)
+                passage_id = passage_example['file_name']
+                passage_tokens = passage_example['tokens']
+
+
+                chunk_sentences = get_chunk_sentences(passage_tokens, max_num_tokens=400, raw_str=True)
+
+                for sentences in chunk_sentences:
+                    sen_id = passage_id
+                    instance = self.text_to_instance(sentences, None, sen_id)
+                    #instances_list.append(instance)
+                    i += 1
+                    yield instance
 
         if self.cached_instance is not None:
             for instance in self.cached_instance:

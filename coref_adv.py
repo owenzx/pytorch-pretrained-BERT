@@ -102,7 +102,11 @@ def organize_mention_list_to_dict(mentions):
 
 
 
-
+def get_mention_text_diff_structure(mention, p_dict):
+    #assert()
+    #just have a try
+    new_mention = mention + ['that is really famous']
+    return new_mention
 
 
 
@@ -119,11 +123,11 @@ def get_mention_text_w_properties(mentions, p_dict, choose_one=True):
     results = mentions[query_key]
     #for m in mentions:
     #    valid_mention = True
-    #    for k in p_dict.keys():
+    #
     #        if m[k] != p_dict[k]:
     #            valid_mention = False
     #            break
-    #    if valid_mention:
+    #    if valid_mention:for k in p_dict.keys():
     #        results.append(m)
 
     if choose_one:
@@ -217,7 +221,8 @@ def split_sentences(client, tokens):
     return splitted
 
 
-def switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase=True, cluster_key="clusters"):
+def switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase=True, cluster_key="clusters", switch_type ='simple'):
+    assert switch_type in ['simple', 'switch_pron', 'add_clause']
     #input and output are both dicts of data
     #This function switch mentions accoridng to one cluster key
 
@@ -279,8 +284,17 @@ def switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase=True, 
                     l, r =span
                     span_text = tokenized_text[l:r+1]
                     m_features = get_mention_features(span_text, client)
+                    #if m_features['mentionType'] == 'PRONOMINAL':
+                    #    continue
                     if m_features['mentionType'] == 'PRONOMINAL':
-                        continue
+                        if switch_type == 'simple' or 'add_clause':
+                            continue
+                        elif switch_type == 'switch_pron':
+                            rand = np.random.randint(2)
+                            if rand == 1:
+                                switchable_mentions.append((l,r))
+                            continue
+
                     switchable_mentions.append((l,r))
                     non_empty = True
                     for k in m_features.keys():
@@ -295,9 +309,16 @@ def switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase=True, 
                 common_feature_values = {}
                 for k in common_features.keys():
                     common_feature_values[k] = max(common_features[k].items(), key=lambda x:x[1])[0]
-                new_mention_text = get_mention_text_w_properties(new_mention_dict, common_feature_values)
-                if new_mention_text is not None:
+                if switch_type not in ['add_clause']:
+                    new_mention_text = get_mention_text_w_properties(new_mention_dict, common_feature_values)
+                    if new_mention_text is not None:
+                        for m in switchable_mentions:
+                            mentions_to_switch.append((m, new_mention_text))
+                else:
                     for m in switchable_mentions:
+                        l, r = m
+                        old_text = tokenized_text[l:r+1]
+                        new_mention_text = get_mention_text_diff_structure(old_text, common_feature_values)
                         mentions_to_switch.append((m, new_mention_text))
             new_tokenized_text, span_mapping = switch_new_mentions(tokenized_text, mentions_to_switch, bert_tokenizer, lowercase)
             new_document = bert_simple_detokenize(new_tokenized_text)
@@ -634,7 +655,7 @@ def create_more_mention_dict(tsv_path, save_path):
         pickle.dump(new_mention_dict, fw)
 
 
-def get_switched_test_data(load_mention_path, pred_path, output_name, lowercase=True):
+def get_switched_test_data(load_mention_path, pred_path, output_name, lowercase=True, switch_type='simple'):
     with open(load_mention_path, 'rb') as fr:
         new_mention_dict = pickle.load(fr)
 
@@ -651,7 +672,7 @@ def get_switched_test_data(load_mention_path, pred_path, output_name, lowercase=
     #bert_model_name = './saved_bert'
     bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
 
-    new_examples = switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase, cluster_key="gold_clusters")
+    new_examples = switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase, cluster_key="gold_clusters", switch_type=switch_type)
 
     json_out_path = output_name + '.json'
     instance_out_path = output_name + '.ist'
@@ -678,8 +699,6 @@ if __name__ == '__main__':
     #run_debug_func(labeled_instance_path='./cache/conll_train.ins', load_mentions_path='./cache/debug_conll_train.corpus', result_json_path='./cache/conll_train_aug_same.json', result_path= './cache/conll_train_aug_same.ins', self_augment=True)
     #extract_mentions_from_findmypast(tsv_path='./datasets/entities.tsv')
     #create_more_mention_dict(tsv_path='./datasets/entities.tsv', save_path='./cache/findmypast.corpus')
-    get_switched_test_data(load_mention_path='./cache/conll_dev_mentions.dict', pred_path='./cache/dev_pred.json', output_name='./cache/conll_dev_gt_switch_dev')
-    get_switched_test_data(load_mention_path='./cache/debug_conll_train.corpus', pred_path='./cache/dev_pred.json', output_name='./cache/conll_dev_gt_switch_train')
-    get_switched_test_data(load_mention_path='./cache/findmypast.corpus', pred_path='./cache/dev_pred.json', output_name='./cache/conll_dev_gt_switch_find')
+    get_switched_test_data(load_mention_path='./cache/conll_dev_mentions.dict', pred_path='./cache/dev_pred.json', output_name='./cache/conll_dev_gt_add_clause', switch_type='add_clause')
 
 

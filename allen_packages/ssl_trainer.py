@@ -52,6 +52,10 @@ def merge_generators(a, b, step_a=1, step_b=1):
                 yield  next(b)
             i = (i + 1) % unit_step
         except StopIteration:
+            if i < step_a:
+                print("RUN OUT OF A!")
+            else:
+                print("RUN OUT OF B!")
             break
 
 
@@ -65,6 +69,8 @@ class SSLTrainer(TrainerBase):
                  model: Model,
                  optimizer: torch.optim.Optimizer,
                  iterator: DataIterator,
+                 dataset_reader: DatasetReader,
+                 unlabel_path: Optional[str],
                  train_dataset: Iterable[Instance],
                  unlabeled_dataset: Optional[Iterable[Instance]] = None,
                  validation_dataset: Optional[Iterable[Instance]] = None,
@@ -75,6 +81,7 @@ class SSLTrainer(TrainerBase):
                  validation_iterator: DataIterator = None,
                  shuffle: bool = True,
                  num_epochs: int = 20,
+                 consist_start_epoch: Optional[int] = None,
                  serialization_dir: Optional[str] = None,
                  num_serialized_models_to_keep: int = 20,
                  keep_serialized_model_every_num_seconds: int = None,
@@ -90,6 +97,8 @@ class SSLTrainer(TrainerBase):
                  should_log_parameter_statistics: bool = True,
                  should_log_learning_rate: bool = False,
                  log_batch_size_period: Optional[int] = None,
+                 gradient_accumulation_steps: Optional[int] = 1,
+                 gradient_accumulation_normalization: Optional[bool] = True,
                  moving_average: Optional[MovingAverage] = None) -> None:
         """
         A trainer for doing supervised learning. It just takes a labeled dataset
@@ -216,6 +225,10 @@ class SSLTrainer(TrainerBase):
         self.unlabeled_data = unlabeled_dataset
         self._validation_data = validation_dataset
 
+        self.dataset_reader = dataset_reader
+        self.unlabel_path = unlabel_path
+        self.consist_start_epoch = consist_start_epoch
+
 
         self.step_supervise = step_supervise
         if step_unlabel == -1:
@@ -264,6 +277,9 @@ class SSLTrainer(TrainerBase):
         self._momentum_scheduler = momentum_scheduler
         self._moving_average = moving_average
 
+        self._gradient_accumulation_steps = gradient_accumulation_steps
+        self._gradient_accumulation_normalization = gradient_accumulation_normalization
+
         # We keep the total batch number as an instance variable because it
         # is used inside a closure for the hook which logs activations in
         # ``_enable_activation_logging``.
@@ -278,6 +294,7 @@ class SSLTrainer(TrainerBase):
                 should_log_learning_rate=should_log_learning_rate)
 
         self._log_batch_size_period = log_batch_size_period
+
 
         self._last_log = 0.0  # time of last logging
 
@@ -329,6 +346,19 @@ class SSLTrainer(TrainerBase):
         # Set the model to "train" mode.
         self.model.train()
 
+        # Set specific training mode of the model
+        if self.consist_start_epoch is not None:
+            if epoch < self.consist_start_epoch:
+                self.model.consistency_loss = False
+                if self.step_unlabel > 0:
+                    self.model.semi_supervise = False
+            else:
+                self.model.consistency_loss = True
+                if self.step_unlabel > 0:
+                    self.model.semi_supervise = True
+
+
+
         num_gpus = len(self._cuda_devices)
 
         # Get tqdm for the training batches
@@ -337,7 +367,9 @@ class SSLTrainer(TrainerBase):
                                             shuffle=self.shuffle)
         train_generator = lazy_groups_of(raw_train_generator, num_gpus)
         num_training_batches = math.ceil(self.iterator.get_num_batches(self.train_data)/num_gpus)
-        raw_unlabeled_generator = self.iterator(self.unlabeled_data,
+        unlabeled_data = self.dataset_reader._read_unlabeled(self.unlabel_path)
+        #raw_unlabeled_generator = self.iterator(self.unlabeled_data,
+        raw_unlabeled_generator = self.iterator(unlabeled_data,
                                                 num_epochs=1,
                                                 shuffle=self.shuffle)
         unlabeled_generator = lazy_groups_of(raw_unlabeled_generator, num_gpus)
@@ -352,7 +384,15 @@ class SSLTrainer(TrainerBase):
 
 
         logger.info("Training")
-        mix_generator = merge_generators(train_generator, unlabeled_generator, self.step_supervise, self.step_unlabel)
+        if self.step_unlabel > 0:
+            if self.consist_start_epoch is None:
+                mix_generator = merge_generators(train_generator, unlabeled_generator, self.step_supervise, self.step_unlabel)
+            elif epoch >= self.consist_start_epoch:
+                mix_generator = merge_generators(train_generator, unlabeled_generator, self.step_supervise, self.step_unlabel)
+            else:
+                mix_generator = train_generator
+        else:
+            mix_generator = train_generator
 
         #train_generator_tqdm = Tqdm.tqdm(train_generator,
         #                                 total=num_training_batches)
@@ -370,6 +410,9 @@ class SSLTrainer(TrainerBase):
 
             loss = self.batch_loss(batch_group, for_training=True)
 
+            if  self._gradient_accumulation_normalization:
+                loss /= self._gradient_accumulation_steps
+
             if torch.isnan(loss):
                 raise ValueError("nan loss encountered")
 
@@ -386,21 +429,22 @@ class SSLTrainer(TrainerBase):
             if self._momentum_scheduler:
                 self._momentum_scheduler.step_batch(batch_num_total)
 
-            if self._tensorboard.should_log_histograms_this_batch():
-                # get the magnitude of parameter updates for logging
-                # We need a copy of current parameters to compute magnitude of updates,
-                # and copy them to CPU so large models won't go OOM on the GPU.
-                param_updates = {name: param.detach().cpu().clone()
-                                 for name, param in self.model.named_parameters()}
-                self.optimizer.step()
-                for name, param in self.model.named_parameters():
-                    param_updates[name].sub_(param.detach().cpu())
-                    update_norm = torch.norm(param_updates[name].view(-1, ))
-                    param_norm = torch.norm(param.view(-1, )).cpu()
-                    self._tensorboard.add_train_scalar("gradient_update/" + name,
-                                                       update_norm / (param_norm + 1e-7))
-            else:
-                self.optimizer.step()
+            if i % self._gradient_accumulation_steps == 0:
+                if self._tensorboard.should_log_histograms_this_batch():
+                    # get the magnitude of parameter updates for logging
+                    # We need a copy of current parameters to compute magnitude of updates,
+                    # and copy them to CPU so large models won't go OOM on the GPU.
+                    param_updates = {name: param.detach().cpu().clone()
+                                     for name, param in self.model.named_parameters()}
+                    self.optimizer.step()
+                    for name, param in self.model.named_parameters():
+                        param_updates[name].sub_(param.detach().cpu())
+                        update_norm = torch.norm(param_updates[name].view(-1, ))
+                        param_norm = torch.norm(param.view(-1, )).cpu()
+                        self._tensorboard.add_train_scalar("gradient_update/" + name,
+                                                           update_norm / (param_norm + 1e-7))
+                else:
+                    self.optimizer.step()
 
             # Update moving averages
             if self._moving_average is not None:
@@ -417,7 +461,7 @@ class SSLTrainer(TrainerBase):
                 self._tensorboard.log_parameter_and_gradient_statistics(self.model, batch_grad_norm)
                 self._tensorboard.log_learning_rates(self.model, self.optimizer)
 
-                if i % (self.step_supervise + self.unlabeled_data) < self.step_supervise:
+                if i % (self.step_supervise + self.step_unlabel) < self.step_supervise:
                     self._tensorboard.add_train_scalar("loss/loss_train", metrics["loss"])
                 else:
                     self._tensorboard.add_train_scalar("loss/loss_unlabel", metrics["loss"])
@@ -714,17 +758,9 @@ class SSLTrainer(TrainerBase):
                     serialization_dir: str,
                     recover: bool = False):
         # pylint: disable=arguments-differ
-        print(params.params)
-        print(params.params.keys())
         dataset_reader = DatasetReader.from_params(deepcopy(params.get("dataset_reader")))
         unlabel_path = params.pop("unl_data_path", None)
         if unlabel_path is not None:
-            print("HELLLLLLLLLLO!")
-            print(dataset_reader._cache_directory)
-            try:
-                print(dataset_reader._get_cache_location_for_file_path(unlabel_path))
-            except:
-                print("CACHE ERROR")
             unlabeled_data = dataset_reader._read_unlabeled(unlabel_path)
         else:
             unlabeled_data = None
@@ -735,21 +771,9 @@ class SSLTrainer(TrainerBase):
         validation_data = pieces.validation_dataset
         test_data = pieces.test_dataset
 
-
-
-
-
-
-
-        #iterator = DataIterator.from_params(params.pop('iterator'))
-        #train_data = dataset_reader.read(params.pop("train_data_path"))
-        #validation_data = dataset_reader.read(params.pop("validataion_data_path"))
-
         validation_iterator = DataIterator.from_params(params.pop('iterator', None))
 
         params = pieces.params
-
-
 
         step_supervise = params.pop_int("step_supervise", 1)
         step_unlabel = params.pop_int("step_unlabel", -1)
@@ -757,6 +781,7 @@ class SSLTrainer(TrainerBase):
         validation_metric = params.pop("validation_metric", "-loss")
         shuffle = params.pop_bool("shuffle", True)
         num_epochs = params.pop_int("num_epochs", 20)
+        consist_start_epoch = params.pop_int("consist_start_epoch", None)
         cuda_device = parse_cuda_device(params.pop("cuda_device", -1))
         grad_norm = params.pop_float("grad_norm", None)
         grad_clipping = params.pop_float("grad_clipping", None)
@@ -814,8 +839,10 @@ class SSLTrainer(TrainerBase):
         should_log_parameter_statistics = params.pop_bool("should_log_parameter_statistics", True)
         should_log_learning_rate = params.pop_bool("should_log_learning_rate", False)
         log_batch_size_period = params.pop_int("log_batch_size_period", None)
+        gradient_accumulation_steps = params.pop_int("gradient_accumulation_steps", 1)
+        gradient_accumulation_normalization = params.pop_bool("gradient_accumulation_normalization", True)
         params.assert_empty(cls.__name__)
-        return cls(model, optimizer, iterator,
+        return cls(model, optimizer, iterator, dataset_reader, unlabel_path,
                    train_data, unlabeled_data, validation_data,
                    step_supervise = step_supervise,
                    step_unlabel = step_unlabel,
@@ -824,6 +851,7 @@ class SSLTrainer(TrainerBase):
                    validation_iterator=validation_iterator,
                    shuffle=shuffle,
                    num_epochs=num_epochs,
+                   consist_start_epoch=consist_start_epoch,
                    serialization_dir=serialization_dir,
                    cuda_device=cuda_device,
                    grad_norm=grad_norm,
@@ -837,6 +865,8 @@ class SSLTrainer(TrainerBase):
                    should_log_parameter_statistics=should_log_parameter_statistics,
                    should_log_learning_rate=should_log_learning_rate,
                    log_batch_size_period=log_batch_size_period,
+                   gradient_accumulation_steps=gradient_accumulation_steps,
+                   gradient_accumulation_normalization=gradient_accumulation_normalization,
                    moving_average=moving_average)
 
 

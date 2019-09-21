@@ -45,7 +45,7 @@
     "validation_metric": "+coref_f1",
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
-      "num_epochs": 20,
+      "num_epochs": 30,
       "num_steps_per_epoch":4735
     },
     "optimizer": {
