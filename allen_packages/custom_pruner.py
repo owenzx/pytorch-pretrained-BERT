@@ -135,4 +135,4 @@ class Pruner(torch.nn.Module):
         # Shape: (batch_size, max_num_items_to_keep, 1)
         top_scores = util.batched_index_select(scores, top_indices, flat_top_indices)
 
-        return top_embeddings, top_mask, top_indices, top_scores
+        return top_embeddings, top_mask, top_indices, top_scores, scores

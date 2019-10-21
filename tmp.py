@@ -679,6 +679,23 @@ def tokenize_unlabeled_data():
             fw.write('\n')
 
 
+def check_avg_length(file_path):
+    import json
+    import numpy as np
+    print(file_path)
+
+    with open(file_path, 'r') as fr:
+        lines = fr.readlines()
+
+    doc_lens = []
+
+    for line in lines:
+        example = json.loads(line)
+        doc_lens.append(len(example['tokenized_text']))
+
+    print(np.mean(doc_lens))
+
+
 
 
 
@@ -702,5 +719,7 @@ if __name__ == '__main__':
     #check_if_json()
     #check_mentions()
     #merge_unlabeled_data()
-    tokenize_unlabeled_data()
+    #tokenize_unlabeled_data()
+    check_avg_length(file_path='./cache/.ats_dev_switch860899771079878528.json')
+    check_avg_length(file_path='./cache/.ats_dev_switch77954247701459200.json')
 

@@ -16,6 +16,10 @@ import json
 import numpy as np
 import warnings
 import csv
+import os
+import sys
+import argparse
+from gensim.models import KeyedVectors as Word2Vec
 
 
 def extract_mentions_from_findmypast(tsv_path):
@@ -110,6 +114,48 @@ def get_mention_text_diff_structure(mention, p_dict):
 
 
 
+def get_mention_text_w_properties_glove(mentions, p_dict, glove_dict, sentence_vec, choose_one=True):
+    assert(type(mentions) is dict)
+    if p_dict['mentionType'] in ['LIST', 'NONE']:
+        return None
+    query_key = get_mention_key(p_dict)
+
+    if query_key not in mentions.keys():
+        warnings.warn("!!! WARNING !!!: no matched mentions, not switching.")
+        print(p_dict)
+        return None
+    results = mentions[query_key]
+    #for m in mentions:
+    #    valid_mention = True
+    #
+    #        if m[k] != p_dict[k]:
+    #            valid_mention = False
+    #            break
+    #    if valid_mention:for k in p_dict.keys():
+    #        results.append(m)
+
+    if choose_one:
+        cand_dist_list = []
+        results = np.array(results)
+        candidates = results[np.random.choice(len(results), 100)]
+        for c in candidates:
+            cand_vec = get_sentence_vec(c, glove_dict)
+            if cand_vec is None:
+                continue
+            dist = np.linalg.norm(cand_vec - sentence_vec)
+            cand_dist_list.append((c, dist))
+        sorted_cand_list = sorted(cand_dist_list, key=lambda x:x[1])
+        #TODO tune here
+        selected_cand_list = sorted_cand_list[int(len(sorted_cand_list)*0.05):int(len(sorted_cand_list)*0.15)]
+
+        result =  selected_cand_list[np.random.choice(len(selected_cand_list), 1)[0]][0]
+        return result
+
+    else:
+        return results
+
+
+
 def get_mention_text_w_properties(mentions, p_dict, choose_one=True):
     assert(type(mentions) is dict)
     if p_dict['mentionType'] in ['LIST', 'NONE']:
@@ -199,6 +245,24 @@ def map_clusters(old_clusters, idx_map):
 
 
 
+def get_sentence_vec(sentence, w2v, pool_method='max'):
+    word_vecs = []
+    for word in sentence:
+        if word not in w2v.vocab:
+            continue
+        word_vecs.append(w2v[word])
+    if len(word_vecs) == 0:
+        return None
+    else:
+        if pool_method == 'mean':
+            return np.mean(word_vecs, axis=0)
+        elif pool_method == 'max':
+            return np.max(word_vecs, axis=0)
+        else:
+            raise NotImplementedError
+
+
+
 
 def overlapping_span(span, span2):
     l1, r1 = span
@@ -222,7 +286,7 @@ def split_sentences(client, tokens):
 
 
 def switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase=True, cluster_key="clusters", switch_type ='simple'):
-    assert switch_type in ['simple', 'switch_pron', 'add_clause']
+    assert switch_type in ['simple', 'switch_pron', 'add_clause', 'glove_close', 'glove_mention']
     #input and output are both dicts of data
     #This function switch mentions accoridng to one cluster key
 
@@ -230,9 +294,17 @@ def switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase=True, 
 
     new_examples = []
 
+    if switch_type in ['glove_close', 'glove_mention']:
+        glove_gensim_path = './datasets/glove.840B.300d.w2vformat.txt'
+        w2v_model = Word2Vec.load_word2vec_format(glove_gensim_path)
+
     with CoreNLPClient(annotators=['tokenize', 'ssplit', 'coref'], timeout=6000000, memory='16G', be_quiet=True, properties=CUSTOM_PROPS) as client:
         for example in tqdm(examples):
             tokenized_text = example['tokenized_text']
+            if switch_type in ['glove_close', 'glove_mention']:
+                whitespace_tokens = bert_simple_detokenize(tokenized_text).split(' ')
+                sentence_vec = get_sentence_vec(whitespace_tokens, w2v_model)
+
             switch_clusters = example[cluster_key]
             # gold_clusters = example['gold_clusters']
             # predicted_clusters = example['clusters']
@@ -240,6 +312,7 @@ def switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase=True, 
             mentions_to_switch = []
 
             for idx_c1, c in enumerate(switch_clusters):
+                mention_vec = None
                 #filter out the mentions overlapped with other mentions
                 valid_cluster = True
 
@@ -287,14 +360,17 @@ def switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase=True, 
                     #if m_features['mentionType'] == 'PRONOMINAL':
                     #    continue
                     if m_features['mentionType'] == 'PRONOMINAL':
-                        if switch_type == 'simple' or 'add_clause':
-                            continue
-                        elif switch_type == 'switch_pron':
+                        if switch_type == 'switch_pron':
                             rand = np.random.randint(2)
                             if rand == 1:
                                 switchable_mentions.append((l,r))
                             continue
-
+                        else:
+                            continue
+                    if switch_type in ['glove_mention']:
+                        if mention_vec is None:
+                            whitespace_tokens = bert_simple_detokenize(span_text).split(' ')
+                            mention_vec = get_sentence_vec(whitespace_tokens, w2v_model)
                     switchable_mentions.append((l,r))
                     non_empty = True
                     for k in m_features.keys():
@@ -304,13 +380,19 @@ def switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase=True, 
                             common_features[k][m_features[k]] = 1
                 if not non_empty:
                     continue
-                # set the feature value to the majority value
+                # set the feeture value to the majority value
                 common_features['mentionType']['pronominal'] = 0 # Ignore all the pronominal mention
                 common_feature_values = {}
                 for k in common_features.keys():
                     common_feature_values[k] = max(common_features[k].items(), key=lambda x:x[1])[0]
                 if switch_type not in ['add_clause']:
-                    new_mention_text = get_mention_text_w_properties(new_mention_dict, common_feature_values)
+                    if switch_type in ['glove_close', 'glove_mention'] and sentence_vec is not None:
+                        if mention_vec is not None:
+                            new_mention_text = get_mention_text_w_properties_glove(new_mention_dict, common_feature_values, w2v_model, mention_vec)
+                        else:
+                            new_mention_text = get_mention_text_w_properties_glove(new_mention_dict, common_feature_values, w2v_model, sentence_vec)
+                    else:
+                        new_mention_text = get_mention_text_w_properties(new_mention_dict, common_feature_values)
                     if new_mention_text is not None:
                         for m in switchable_mentions:
                             mentions_to_switch.append((m, new_mention_text))
@@ -452,7 +534,7 @@ def get_debug_ist():
     with open(instance_out_file, 'wb') as fw:
         pickle.dump(new_instances, fw)
 
-def main(load_mentions_path=None, lowercase=True):
+def get_self_switch_test_set(load_mentions_path=None, lowercase=True, predict_file=None):
     if load_mentions_path is not None:
         with open(load_mentions_path, 'rb') as fr:
             new_mention_dict = pickle.load(fr)
@@ -464,7 +546,8 @@ def main(load_mentions_path=None, lowercase=True):
         mention_save_path = './cache/conll_dev_mentions.dict'
         with open(mention_save_path, 'wb') as fw:
             pickle.dump(new_mention_dict, fw)
-    predict_file = './tmp.out.2'
+    assert(predict_file is not None)
+    #predict_file = './tmp.out.2'
     #predict file is in the format of json
     with open(predict_file, 'r') as fr:
         lines = fr.readlines()
@@ -614,7 +697,7 @@ def tmp_fix():
 
 
 def run_debug_func(labeled_instance_path=None, load_mentions_path=None, result_json_path=None, result_path=None, self_augment=True):
-    bert_model_name = 'bert-base-uncased'
+    bert_model_name = 'bert-base-uncased'   
     bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
     lowercase = True
 
@@ -687,6 +770,36 @@ def get_switched_test_data(load_mention_path, pred_path, output_name, lowercase=
         pickle.dump(new_instances, fw)
 
 
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode",
+                        type=str,
+                        required=True)
+    parser.add_argument("--mentions_path",
+                        default=None,
+                        type=str)
+    parser.add_argument("--pred_path",
+                        default=None,
+                        type=str)
+    parser.add_argument("--output_path",
+                        default=None,
+                        type=str)
+    parser.add_argument("--switch_type",
+                        default=None,
+                        type=str)
+    args = parser.parse_args()
+    assert(args.mode in ['switch_mention_pred'])
+
+    if args.mode == 'switch_mention_pred':
+        assert(args.mentions_path is not None)
+        assert(args.pred_path is not None)
+        assert(args.switch_type is not None)
+        get_switched_test_data(load_mention_path=args.mentions_path,
+                               pred_path=args.pred_path,
+                               output_name=args.output_path,
+                               switch_type=args.switch_type)
+
+
 if __name__ == '__main__':
     #main()
     #main(load_mentions_path='./debug.corpus')
@@ -699,6 +812,8 @@ if __name__ == '__main__':
     #run_debug_func(labeled_instance_path='./cache/conll_train.ins', load_mentions_path='./cache/debug_conll_train.corpus', result_json_path='./cache/conll_train_aug_same.json', result_path= './cache/conll_train_aug_same.ins', self_augment=True)
     #extract_mentions_from_findmypast(tsv_path='./datasets/entities.tsv')
     #create_more_mention_dict(tsv_path='./datasets/entities.tsv', save_path='./cache/findmypast.corpus')
-    get_switched_test_data(load_mention_path='./cache/conll_dev_mentions.dict', pred_path='./cache/dev_pred.json', output_name='./cache/conll_dev_gt_add_clause', switch_type='add_clause')
+    #get_switched_test_data(load_mention_path='./cache/conll_dev_mentions.dict', pred_path='./cache/dev_pred.json', output_name='./cache/conll_dev_gt_add_clause', switch_type='add_clause')
+    #get_switched_test_data(load_mention_path='./cache/conll_dev_mentions.dict', pred_path='./cache/dev_pred.json', output_name='./cache/debugging', switch_type='glove_close')
+    main()
 
 

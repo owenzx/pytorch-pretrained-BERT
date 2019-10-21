@@ -19,7 +19,7 @@ from allennlp.nn.util import get_text_field_mask
 from allennlp.training.metrics import MentionRecall, ConllCorefScores
 
 from utils import rm_sets_from_clusters
-from .mention_switcher import MentionSwitcher, RNNMentionSwitcher
+from .mention_switcher import MentionSwitcher
 from .custom_pruner import  Pruner
 from .debug_span_extractor import CustomEndpointSpanExtractor as EndpointSpanExtractor
 from .oracle_coref_scores import OracleCorefScores
@@ -27,7 +27,7 @@ from .oracle_coref_scores import OracleCorefScores
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
-@Model.register("my_coref")
+@Model.register("my_coref_baseline")
 class MyCoreferenceResolver(Model):
     """
     This ``Model`` implements the coreference resolution model described "End-to-end Neural
@@ -87,8 +87,7 @@ class MyCoreferenceResolver(Model):
                  semi_supervise = False,
                  lambda_consist: float = 1.0,
                  lambda_detection_consist: float = 1.0,
-                 mention_dict_path: Optional[str] = None,
-                 mention_switcher_type: str = 'basic') -> None:
+                 mention_dict_path: Optional[str] = None) -> None:
         super(MyCoreferenceResolver, self).__init__(vocab, regularizer)
 
         if isinstance(bert_model, str):
@@ -150,13 +149,7 @@ class MyCoreferenceResolver(Model):
 
 
         if consistency_loss is True:
-            if mention_switcher_type == 'basic':
-                self.mention_switcher = MentionSwitcher(bert_model_name=bert_model, mention_dict_path=mention_dict_path, vocab=vocab, max_span_width=self._max_span_width)
-            elif mention_switcher_type == 'rnn':
-                self.mention_switcher = RNNMentionSwitcher(bert_model_name=bert_model, vocab=vocab, max_span_width=self._max_span_width)
-            else:
-                raise NotImplementedError
-
+            self.mention_switcher = MentionSwitcher(bert_model_name=bert_model, mention_dict_path=mention_dict_path, vocab=vocab, max_span_width=self._max_span_width)
             self.lambda_consist = lambda_consist
             self.lambda_detection_consist = lambda_detection_consist
 
@@ -497,12 +490,27 @@ class MyCoreferenceResolver(Model):
         loss : ``torch.FloatTensor``, optional
             A scalar loss to be optimised.
         """
+
+        #Assume text is in the format of multiple segments
+
+
         mask = get_text_field_mask(text)
 
         # Shape: (batch_size, document_length, embedding_size)
         bert_embeddings, _ = self.bert_model(input_ids=text['tokens'], attention_mask=mask, output_all_encoded_layers=False)
+
+
+
+
+
+
+        flat_mask = flat_mask.byte()
+        flat_bert_embeddings = torch.masked_select(bert_embeddings, flat_mask)
+        flat_bert_embeddings = flat_bert_embeddings.reshape(1, -1, 768)
+
+
         #bert_embeddings = bert_embeddings.detach()
-        text_embeddings = self._lexical_dropout(bert_embeddings)
+        text_embeddings = self._lexical_dropout(flat_bert_embeddings)
         if self._bert_feedforward is not None:
             text_embeddings = self._bert_feedforward(text_embeddings)
 
@@ -666,7 +674,7 @@ class MyCoreferenceResolver(Model):
         Converts the list of spans and predicted antecedent indices into clusters
         of spans for each element in the batch.
 
-        Parameterw
+        Parameters
         ----------
         output_dict : ``Dict[str, torch.Tensor]``, required.
             The result of calling :func:`forward` on an instance or batch of instances.

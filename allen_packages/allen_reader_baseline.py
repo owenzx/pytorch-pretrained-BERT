@@ -57,7 +57,7 @@ def canonicalize_clusters(clusters: DefaultDict[int, List[Tuple[int, int]]]) -> 
     return [list(c) for c in merged_clusters]
 
 
-@DatasetReader.register("my_coref")
+@DatasetReader.register("my_coref_baseline")
 class MyConllCorefReader(DatasetReader):
     """
     Reads a single CoNLL-formatted file. This is the same file format as used in the
@@ -191,32 +191,28 @@ class MyConllCorefReader(DatasetReader):
             else:
                 ontonotes_reader = SimpleCoref()
             i = 0
-            for long_sentences in ontonotes_reader.dataset_document_iterator(file_path):
+            for sentences in ontonotes_reader.dataset_document_iterator(file_path):
 
-                chunk_sentences = get_chunk_sentences(long_sentences, max_num_tokens=400)
+                total_tokens = 0
+                clusters: DefaultDict[int, List[Tuple[int, int]]] = collections.defaultdict(list)
 
+                for sentence in sentences:
+                    for typed_span in sentence.coref_spans:
+                        # Coref annotations are on a _per sentence_
+                        # basis, so we need to adjust them to be relative
+                        # to the length of the document.
+                        span_id, (start, end) = typed_span
+                        clusters[span_id].append((start + total_tokens,
+                                                  end + total_tokens))
+                    total_tokens += len(sentence.words)
 
-                for sentences in chunk_sentences:
-                    total_tokens = 0
-                    clusters: DefaultDict[int, List[Tuple[int, int]]] = collections.defaultdict(list)
-
-                    for sentence in sentences:
-                        for typed_span in sentence.coref_spans:
-                            # Coref annotations are on a _per sentence_
-                            # basis, so we need to adjust them to be relative
-                            # to the length of the document.
-                            span_id, (start, end) = typed_span
-                            clusters[span_id].append((start + total_tokens,
-                                                      end + total_tokens))
-                        total_tokens += len(sentence.words)
-
-                    canonical_clusters = canonicalize_clusters(clusters)
-                    #_ =  self.text_to_instance([s.words for s in sentences], canonical_clusters)
-                    sen_id = str(sentences[0].document_id) + ':' + str(sentences[0].sentence_id)
-                    instance = self.text_to_instance([s.words for s in sentences], canonical_clusters, sen_id)
-                    instances_list.append(instance)
-                    i += 1
-                    yield instance
+                canonical_clusters = canonicalize_clusters(clusters)
+                #_ =  self.text_to_instance([s.words for s in sentences], canonical_clusters)
+                sen_id = str(sentences[0].document_id) + ':' + str(sentences[0].sentence_id)
+                instance = self.text_to_instance([s.words for s in sentences], canonical_clusters, sen_id)
+                instances_list.append(instance)
+                i += 1
+                yield instance
 
             #yield self.text_to_instance([s.words for s in sentences], canonical_clusters)
 

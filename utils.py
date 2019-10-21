@@ -11,6 +11,41 @@ from allennlp.data.fields import TextField
 from allennlp.data.tokenizers import Token
 
 
+
+def map_spans(pred_clusters, gold_clusters):
+    """This function uses heuristic rules to match the spans from pred_spans and gold_spans, so that the metric can focus more on linking the spans"""
+    flat_gold_spans = set()
+    for spans in gold_clusters:
+        for span in spans:
+            flat_gold_spans.add(span)
+
+    flat_gold_spans = list(flat_gold_spans)
+
+    oracle_clusters = []
+    for spans in pred_clusters:
+        o_cluster = []
+        for span in spans:
+            added = False
+            if span in flat_gold_spans:
+                o_cluster.append(span)
+                added = True
+                continue
+            for o_span in flat_gold_spans:
+                if (o_span[0]<=span[0] and o_span[1]>=span[1]) or (o_span[0]>=span[0] and o_span[1]<=span[1]):
+                    o_cluster.append(o_span)
+                    added = True
+                    break
+            if not added:
+                o_cluster.append(span)
+        oracle_clusters.append(o_cluster)
+    # Also return a mapping of each mention to the cluster containing it
+    mention_to_cluster = {}
+    for i, spans in enumerate(oracle_clusters):
+        for span in spans:
+            mention_to_cluster[span] = tuple(spans)
+    return oracle_clusters, mention_to_cluster
+
+
 def inv_map(d):
     return {v: k for k, v in d.items()}
 
@@ -171,6 +206,23 @@ for dom in mtl_domains:
     processors['mtl-%s'%dom] = MtlProcessor
     output_modes['mtl-%s'%dom] = 'classification'
     output_num['mtl-%s'%dom] = 2
+
+
+
+def bert_detokenize_with_index_map(tokens):
+    """this function return a list of new tokens instead of string"""
+    idx_map = {}
+    new_tokens = []
+    for i, token in enumerate(tokens):
+        if token in ['[CLS]', '[SEP]']:
+            pass
+        if token[:2] == '##':
+            new_tokens[-1] = new_tokens[-1] + token[2:]
+        else:
+            new_tokens.append(token)
+        idx_map[i] = len(new_tokens) - 1
+
+    return new_tokens, idx_map
 
 
 def bert_simple_detokenize(tokens):
