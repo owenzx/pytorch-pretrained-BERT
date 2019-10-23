@@ -7,7 +7,7 @@ import torch
 import os
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 from tqdm import tqdm
-from . attacker_tree import AttackerTree
+from . attacker_tree import AttackerTree, EditAttackerTree
 
 from allennlp.models.archival import load_archive
 from allennlp.predictors import Predictor
@@ -19,7 +19,7 @@ from allennlp.data.iterators.data_iterator import DataIterator, TensorDict
 from allennlp.data.iterators.bucket_iterator import BucketIterator
 
 from . data_processing_tree import load_text_from_dataset, attacker2attackee_input, get_switched_ee_example
-from .attacker_reader import AttackerCorefReader
+from .attacker_reader import AttackerCorefReader, EditAttackerCorefReader
 from allennlp.nn.util import move_to_device
 import sys
 import logging
@@ -173,7 +173,11 @@ def train_model(model, attackee, train_examples, vocab, optimizer, args, logger,
 
     #Implementing batch training using gradient accumulation
     #train_iterator = BucketIterator(sorting_keys=[("text", "num_tokens")], padding_noise=0.0, batch_size=args.train_batch_size)
-    train_iterator = BucketIterator(sorting_keys=[("text", "num_tokens")], padding_noise=0.0, batch_size=1)
+    if args.action_type == 'head_noun':
+        train_iterator = BucketIterator(sorting_keys=[("text", "num_tokens")], padding_noise=0.0, batch_size=1)
+    elif args.action_type == 'edit':
+        train_iterator = BucketIterator(sorting_keys=[("text", "num_tokens")], padding_noise=0.0, batch_size=1)
+        #train_iterator = BucketIterator(sorting_keys=[("text", "parse", "num_tokens")], padding_noise=0.0, batch_size=1)
     train_iterator.index_with(vocab)
 
     gradient_accumulation_step = args.train_batch_size
@@ -208,15 +212,17 @@ def train_model(model, attackee, train_examples, vocab, optimizer, args, logger,
             old_metrics = attackee._model.get_metrics(True)
 
             new_mention_cfgs = model.sample_new_mention(er_example)
-            new_mention_text = model.get_new_mention_text(new_mention_cfgs, er_example[0]['metadata'][0]['original_text'], er_example[0]['metadata'][0]['np_head'])
+            #new_mention_text = model.get_new_mention_text(new_mention_cfgs, er_example[0]['metadata'][0]['original_text'], er_example[0]['metadata'][0]['np_head'])
+            new_mention_text = model.get_new_mention_text(new_mention_cfgs, er_example[0]['metadata'][0])
 
-            total_reward = get_reward(new_mention_cfgs, new_mention_text, model, attackee, old_metrics, er_example, old_ee_results, attackee_old_inst, args)
+            total_reward = get_reward(new_mention_cfgs, new_mention_text, model, attackee, old_metrics, er_example, old_ee_results, attackee_old_inst, w2v_model, args)
 
 
             # get baseline reward using beam search
             if args.baseline == 'beam_search':
                 baseline_mention_cfgs = model.beam_search_new_mention(er_example)
-                baseline_mention_text = model.get_new_mention_text(new_mention_cfgs, er_example[0]['metadata'][0]['original_text'], er_example[0]['metadata'][0]['np_head'])
+                #baseline_mention_text = model.get_new_mention_text(new_mention_cfgs, er_example[0]['metadata'][0]['original_text'], er_example[0]['metadata'][0]['np_head'])
+                baseline_mention_text = model.get_new_mention_text(new_mention_cfgs, er_example[0]['metadata'][0])
 
                 baseline_reward = get_reward(baseline_mention_cfgs, baseline_mention_text, model, attackee, old_metrics, er_example, old_ee_results, attackee_old_inst, w2v_model, args)
             else:
@@ -265,7 +271,11 @@ def eval_model(model, attackee, eval_examples, vocab, args, logger, epoch_num=No
     assert(args.eval_batch_size == 1)
     # TODO batch evaluation
 
-    eval_iterator = BucketIterator(sorting_keys=[("text", "num_tokens")], padding_noise=0.0, batch_size=args.eval_batch_size)
+    if args.action_type == 'head_noun':
+        eval_iterator = BucketIterator(sorting_keys=[("text", "num_tokens")], padding_noise=0.0, batch_size=args.eval_batch_size)
+    elif args.action_type == 'edit':
+        eval_iterator = BucketIterator(sorting_keys=[("text", "num_tokens")], padding_noise=0.0, batch_size=args.eval_batch_size)
+        #eval_iterator = BucketIterator(sorting_keys=[("text", "parse", "num_tokens")], padding_noise=0.0, batch_size=args.eval_batch_size)
     eval_iterator.index_with(vocab)
     eval_dataloader = eval_iterator(eval_examples, num_epochs=1, shuffle = False)
     eval_dataloader = lazy_groups_of(eval_dataloader, 1)
@@ -286,7 +296,8 @@ def eval_model(model, attackee, eval_examples, vocab, args, logger, epoch_num=No
 
             #new_mention = model(...)
             new_mention_cfgs = model.sample_new_mention(instance)
-            new_mention_text = model.get_new_mention_text(new_mention_cfgs, instance[0]['metadata'][0]['original_text'], instance[0]['metadata'][0]['np_head'])
+            #new_mention_text = model.get_new_mention_text(new_mention_cfgs, instance[0]['metadata'][0]['original_text'], instance[0]['metadata'][0]['np_head'])
+            new_mention_text = model.get_new_mention_text(new_mention_cfgs, instance[0]['metadata'][0])
             if new_mention_text is not None:
                 new_ee_example_dict, _ = get_switched_ee_example(new_mention_text, instance[0]['metadata'][0])
                 attackee_new_inst = attackee._dataset_reader.text_to_instance(new_ee_example_dict['input_sentences'], new_ee_example_dict['input_gold_clusters'], new_ee_example_dict['input_sen_id'])
@@ -339,7 +350,8 @@ def get_samples_log(model, vocab, eval_examples, args, epoch_num=None, sample_nu
             instance = move_to_device(instance, 0)
             with torch.no_grad():
                 new_mention_cfgs = model.sample_new_mention(instance)
-                new_mention_text = model.get_new_mention_text(new_mention_cfgs, instance[0]['metadata'][0]['original_text'], instance[0]['metadata'][0]['np_head'])
+                #new_mention_text = model.get_new_mention_text(new_mention_cfgs, instance[0]['metadata'][0]['original_text'], instance[0]['metadata'][0]['np_head'])
+                new_mention_text = model.get_new_mention_text(new_mention_cfgs, instance[0]['metadata'][0])
             fw.write("Example %d\n"%i)
             fw.write("CFGS: " + str(new_mention_cfgs) + '\n')
             fw.write("TEXT: " + str(new_mention_text) + '\n')
@@ -429,6 +441,10 @@ def main():
                         type=float,
                         default = 0.99,
                         help='the weight for exponential moving average')
+    parser.add_argument('--action_type',
+                        type=str,
+                        default='head_noun',
+                        help='determine which set of action/formalization to use')
 
 
     # Loss hyper-parameters
@@ -491,6 +507,7 @@ def main():
     assert(args.do_train or args.do_eval)
 
     assert(args.reward_type in ['normal_f1', 'link_f1', 'detection_f1', 'link_detection_f1'])
+    assert(args.action_type in ['head_noun', 'edit'])
 
     if 'glove' in args.sem_reward:
         w2v_model = Word2Vec.load_word2vec_format(args.glove_gensim_path)
@@ -522,7 +539,10 @@ def main():
     archive = load_archive(args.attackee_path, cuda_device=0)
     attackee = Predictor.from_archive(archive, 'coreference-resolution')
 
-    attacker_reader = AttackerCorefReader()
+    if args.action_type == 'head_noun':
+        attacker_reader = AttackerCorefReader()
+    else:
+        attacker_reader = EditAttackerCorefReader()
 
     log_file = os.path.join(args.output_dir, LOG_NAME)
 
@@ -548,14 +568,18 @@ def main():
         eval_examples_attacker = attacker_reader.read(args.eval_data_path)
 
     # Define/Load model
-    model = AttackerTree(args, vocab)
+    if args.action_type == 'head_noun':
+        model = AttackerTree(args, vocab)
+    else:
+        model = EditAttackerTree(args, vocab)
     model.controller.cuda()
 
-    model_file = 'epoch%d.bin'% args.load_epoch_num
-    model_save_path = os.path.join(args.output_dir, model_file)
-    if os.path.exists(model_save_path):
-        assert(args.load_pretrained)
-        model.controller.load_state_dict(torch.load(model_save_path))
+    if args.load_epoch_num is not None:
+        model_file = 'epoch%d.bin'% args.load_epoch_num
+        model_save_path = os.path.join(args.output_dir, model_file)
+        if os.path.exists(model_save_path):
+            assert(args.load_pretrained)
+            model.controller.load_state_dict(torch.load(model_save_path))
 
 
     if args.do_train:

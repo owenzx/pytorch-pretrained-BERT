@@ -105,6 +105,32 @@ class LexiconFiller(object):
         self.glove_words = _load_glove_vecs(args.glove_gensim_path)
         self.wordtags = nltk.ConditionalFreqDist((w.lower(), t)
                                                  for w, t in nltk.corpus.brown.tagged_words(tagset="universal"))
+        self.edit_tree = None
+        if args.action_type == 'head_noun':
+            self.get_available_action = self.get_available_action_hn
+        elif args.action_type == 'edit':
+            self.get_available_action = self.get_available_action_edit
+
+
+
+    def set_inital_tree(self, flattened_parse):
+        #remove the outer-most brackets
+        flattened_parse = flattened_parse[1:-1]
+        root_node = None
+        cur_node = None
+        for parse_token in flattened_parse:
+            if parse_token == '(':
+                cur_node.children += (Node(0),)
+                cur_node = cur_node.children[-1]
+            elif parse_token == ')':
+                cur_node = cur_node.parent
+            else:
+                if root_node is None:
+                    cur_node = root_node = Node(parse_token)
+                else:
+                    cur_node.name = parse_token
+        self.edit_tree = root_node
+        return root_node
 
     def check_completion(self, root) -> bool:
         """this function checks if the NP tree is complete (No non-terminal tokens at leaf level"""
@@ -136,6 +162,65 @@ class LexiconFiller(object):
         else:
             return root
 
+    def apply_cfg_rules_to_edit_tree(self, cfg):
+        if ':' not in cfg:
+            return None
+
+        target_node, option = cfg.split(':')
+        if ' ' in option:
+            opr, para = option.split(' ')
+        else:
+            opr = option
+        #root = self.edit_tree
+        for node in PreOrderIter(self.edit_tree):
+            if node.name == target_node:
+                if opr == 'reduce':
+                    assert(node.name=='NP')
+                    valid_c = tuple()
+                    for c in node.children:
+                        if c.name[0] == 'N':
+                            valid_c += (c,)
+                    node.children = valid_c
+                elif opr == 'add':
+                    if para == 'ADJP':
+                        node.children = (Node('ADJP'),) + node.children
+                    elif para == 'PP':
+                        node.children += (Node('PP'),)
+                elif opr =='delete':
+                    p = node.parent
+                    for i, c in enumerate(p.children):
+                        if c == node:
+                            p.children = p.children[0:i] + p.children[i+1:len(p.children)]
+                elif opr == 'expand':
+                    assert(node.is_leaf)
+                    children_list = para.split(',')
+                    children_node = []
+                    for c in children_list:
+                        children_node.append(Node(c))
+                    node.children = tuple(children_node)
+
+                elif opr == 'confirm':
+                    node.name = node.name +'_FINISH'
+                break
+        return self.edit_tree
+
+
+    def get_avail_for_edit_tree(self):
+        avail = []
+        for node in PreOrderIter(self.edit_tree):
+            if node.name in ['NP', 'ADJP', 'PP']:
+                for cfg in self.cfg2idx.keys():
+                    if cfg[:len(node.name)] == node.name:
+                        if 'expand' in cfg:
+                            if node.is_leaf:
+                                avail.append(cfg)
+                        else:
+                            avail.append(cfg)
+
+        return avail
+
+
+
 
     def get_word_by_pos(self, pos, sent_vec):
         if pos == 'P':
@@ -164,6 +249,25 @@ class LexiconFiller(object):
                     node.name = node.name[:-1]
         return root
 
+    def fill_lexicon_edit_tree(self, sent):
+        sent_vec = get_sentence_vec(sent, self.glove_words)
+        root = self.edit_tree
+        root, _ = self.fill_leaf_word(root, sent_vec, True, None)
+
+        if root is None:
+            return None
+
+
+        is_complete = self.check_completion(root)
+        if is_complete:
+            new_mention_text = _translate_tree_to_str(root)
+            return new_mention_text
+        else:
+            root = self.trim_tree(root)
+            root, _ = self.fill_leaf_word(root, sent_vec, True, None)
+            #return None
+            new_mention_text = _translate_tree_to_str(root)
+            return new_mention_text
 
 
     def fill_lexicon(self, mention_cfgs, sent, np_head) -> str:
@@ -215,7 +319,33 @@ class LexiconFiller(object):
         pass
 
 
-    def get_available_action(self, action_history):
+
+
+
+    def get_available_action_edit(self, action_history):
+        action_history = [a.cpu().numpy() for a in action_history]
+        cfgs = [self.idx2cfg[idx[0]] for idx in action_history]
+        if len(cfgs) > 0 and cfgs[-1] in ['STOP', '@end@']:
+            avail = ['@end@']
+        else:
+            print(cfgs)
+            if len(cfgs) > 0:
+                last_cfg = cfgs[-1]
+                self.apply_cfg_rules_to_edit_tree(last_cfg)
+            avail = self.get_avail_for_edit_tree()
+
+
+        empty_mask = np.zeros((1, len(self.idx2cfg.keys())))
+        for c in avail:
+            empty_mask[0][self.cfg2idx[c]] = 1
+
+        torch_mask = torch.Tensor(empty_mask).cuda()
+        return torch_mask
+
+
+
+
+    def get_available_action_hn(self, action_history):
         action_history = [a.cpu().numpy() for a in action_history]
         #print(action_history[0].shape)
         cfgs = [self.idx2cfg[idx[0]] for idx in action_history]
@@ -247,7 +377,6 @@ class LexiconFiller(object):
 
         torch_mask = torch.Tensor(empty_mask).cuda()
         return torch_mask
-
 
 
 
