@@ -7,5 +7,5 @@ export COREF_TEST_DATA_PATH=/playpen/home/xzh/datasets/coref/allen/test.english.
 #export COREF_DEV_DATA_PATH=/playpen/home/xzh/datasets/coref/allen/debug.english.v4_gold_conll
 #export COREF_TEST_DATA_PATH=/playpen/home/xzh/datasets/coref/allen/debug.english.v4_gold_conll
 
-allennlp train scripts/mention_switch/mentionswitch_consist_same.jsonnet -s outputs/mentionswitch_consist_same_1025_1 --include-package allen_packages
+allennlp train scripts/mention_switch/tune_2_mentionswitch_consist_same.jsonnet -s outputs/tune_2_mentionswitch_consist_same_1025_1 --include-package allen_packages
 

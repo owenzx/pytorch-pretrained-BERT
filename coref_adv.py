@@ -199,7 +199,8 @@ def get_seq_text_label(text, clusters):
 
 def get_mention_features(text, client):
     # Most likely there is only one span
-    ann = client.annotate(' '.join(text))
+    #ann = client.annotate(' '.join(text))
+    ann = client.annotate(bert_simple_detokenize(text))
 
     if len(ann.mentionsForCoref) == 0:
         return {'mentionType': 'NONE', 'number':'NONE', 'animacy':'NONE', 'person':'NONE', 'gender': 'NONE', 'nerString':'NONE'}
@@ -278,7 +279,12 @@ def overlapping_span(span, span2):
 
 def split_sentences(client, tokens):
     splitted = []
-    ann = client.annotate(' '.join(tokens))
+    try:
+        ann = client.annotate(' '.join(tokens))
+    except:
+        print(tokens)
+        print(' '.join(tokens))
+        exit()
     sentences = ann.sentence
     for s in sentences:
         splitted.append([t.word for t in s.token])
@@ -298,125 +304,127 @@ def switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase=True, 
         glove_gensim_path = './datasets/glove.840B.300d.w2vformat.txt'
         w2v_model = Word2Vec.load_word2vec_format(glove_gensim_path)
 
-    with CoreNLPClient(annotators=['tokenize', 'ssplit', 'coref'], timeout=6000000, memory='16G', be_quiet=True, properties=CUSTOM_PROPS) as client:
-        for example in tqdm(examples):
-            tokenized_text = example['tokenized_text']
-            if switch_type in ['glove_close', 'glove_mention']:
-                whitespace_tokens = bert_simple_detokenize(tokenized_text).split(' ')
-                sentence_vec = get_sentence_vec(whitespace_tokens, w2v_model)
+    #two client so that it's faster
+    with CoreNLPClient(annotators=['tokenize', 'ssplit'], timeout=6000000, memory='16G', be_quiet=True, properties=CUSTOM_PROPS, endpoint='http://localhost:1777') as client2:
+        with CoreNLPClient(annotators=['tokenize', 'ssplit', 'coref'], timeout=6000000, memory='16G', be_quiet=True, properties=CUSTOM_PROPS) as client:
+            for example in tqdm(examples):
+                tokenized_text = example['tokenized_text']
+                if switch_type in ['glove_close', 'glove_mention']:
+                    whitespace_tokens = bert_simple_detokenize(tokenized_text).split(' ')
+                    sentence_vec = get_sentence_vec(whitespace_tokens, w2v_model)
 
-            switch_clusters = example[cluster_key]
-            # gold_clusters = example['gold_clusters']
-            # predicted_clusters = example['clusters']
+                switch_clusters = example[cluster_key]
+                # gold_clusters = example['gold_clusters']
+                # predicted_clusters = example['clusters']
 
-            mentions_to_switch = []
+                mentions_to_switch = []
 
-            for idx_c1, c in enumerate(switch_clusters):
-                mention_vec = None
-                #filter out the mentions overlapped with other mentions
-                valid_cluster = True
+                for idx_c1, c in enumerate(switch_clusters):
+                    mention_vec = None
+                    #filter out the mentions overlapped with other mentions
+                    valid_cluster = True
 
-                #check internal overlapping
-                for i, span in enumerate(c):
-                    for j, span2 in enumerate(c):
-                        if i==j:
-                            continue
-                        if overlapping_span(span, span2):
-                            valid_cluster = False
-                            break
-                    if not valid_cluster:
-                        break
-                if not valid_cluster:
-                    continue
-
-                #check cross-cluster overlapping
-                for span in c:
-                    for idx_c2, c2 in enumerate(switch_clusters):
-                        if idx_c1==idx_c2:
-                            continue
-                        for span2 in c2:
+                    #check internal overlapping
+                    for i, span in enumerate(c):
+                        for j, span2 in enumerate(c):
+                            if i==j:
+                                continue
                             if overlapping_span(span, span2):
                                 valid_cluster = False
                                 break
                         if not valid_cluster:
                             break
                     if not valid_cluster:
-                        break
-                if not valid_cluster:
-                    continue
+                        continue
 
-                common_features = {'mentionType': {},
-                                   'animacy': {},
-                                   'number': {},
-                                   'person': {},
-                                   'nerString':{},
-                                   'gender':{}}
-                switchable_mentions = []
-                non_empty = False
-                for span in c:
-                    l, r =span
-                    span_text = tokenized_text[l:r+1]
-                    m_features = get_mention_features(span_text, client)
-                    #if m_features['mentionType'] == 'PRONOMINAL':
-                    #    continue
-                    if m_features['mentionType'] == 'PRONOMINAL':
-                        if switch_type == 'switch_pron':
-                            rand = np.random.randint(2)
-                            if rand == 1:
-                                switchable_mentions.append((l,r))
-                            continue
+                    #check cross-cluster overlapping
+                    for span in c:
+                        for idx_c2, c2 in enumerate(switch_clusters):
+                            if idx_c1==idx_c2:
+                                continue
+                            for span2 in c2:
+                                if overlapping_span(span, span2):
+                                    valid_cluster = False
+                                    break
+                            if not valid_cluster:
+                                break
+                        if not valid_cluster:
+                            break
+                    if not valid_cluster:
+                        continue
+
+                    common_features = {'mentionType': {},
+                                       'animacy': {},
+                                       'number': {},
+                                       'person': {},
+                                       'nerString':{},
+                                       'gender':{}}
+                    switchable_mentions = []
+                    non_empty = False
+                    for span in c:
+                        l, r =span
+                        span_text = tokenized_text[l:r+1]
+                        m_features = get_mention_features(span_text, client)
+                        #if m_features['mentionType'] == 'PRONOMINAL':
+                        #    continue
+                        if m_features['mentionType'] == 'PRONOMINAL':
+                            if switch_type == 'switch_pron':
+                                rand = np.random.randint(2)
+                                if rand == 1:
+                                    switchable_mentions.append((l,r))
+                                continue
+                            else:
+                                continue
+                        if switch_type in ['glove_mention']:
+                            if mention_vec is None:
+                                whitespace_tokens = bert_simple_detokenize(span_text).split(' ')
+                                mention_vec = get_sentence_vec(whitespace_tokens, w2v_model)
+                        switchable_mentions.append((l,r))
+                        non_empty = True
+                        for k in m_features.keys():
+                            if m_features[k] in common_features[k].keys():
+                                common_features[k][m_features[k]] += 1
+                            else:
+                                common_features[k][m_features[k]] = 1
+                    if not non_empty:
+                        continue
+                    # set the feeture value to the majority value
+                    common_features['mentionType']['pronominal'] = 0 # Ignore all the pronominal mention
+                    common_feature_values = {}
+                    for k in common_features.keys():
+                        common_feature_values[k] = max(common_features[k].items(), key=lambda x:x[1])[0]
+                    if switch_type not in ['add_clause']:
+                        if switch_type in ['glove_close', 'glove_mention'] and sentence_vec is not None:
+                            if mention_vec is not None:
+                                new_mention_text = get_mention_text_w_properties_glove(new_mention_dict, common_feature_values, w2v_model, mention_vec)
+                            else:
+                                new_mention_text = get_mention_text_w_properties_glove(new_mention_dict, common_feature_values, w2v_model, sentence_vec)
                         else:
-                            continue
-                    if switch_type in ['glove_mention']:
-                        if mention_vec is None:
-                            whitespace_tokens = bert_simple_detokenize(span_text).split(' ')
-                            mention_vec = get_sentence_vec(whitespace_tokens, w2v_model)
-                    switchable_mentions.append((l,r))
-                    non_empty = True
-                    for k in m_features.keys():
-                        if m_features[k] in common_features[k].keys():
-                            common_features[k][m_features[k]] += 1
-                        else:
-                            common_features[k][m_features[k]] = 1
-                if not non_empty:
-                    continue
-                # set the feeture value to the majority value
-                common_features['mentionType']['pronominal'] = 0 # Ignore all the pronominal mention
-                common_feature_values = {}
-                for k in common_features.keys():
-                    common_feature_values[k] = max(common_features[k].items(), key=lambda x:x[1])[0]
-                if switch_type not in ['add_clause']:
-                    if switch_type in ['glove_close', 'glove_mention'] and sentence_vec is not None:
-                        if mention_vec is not None:
-                            new_mention_text = get_mention_text_w_properties_glove(new_mention_dict, common_feature_values, w2v_model, mention_vec)
-                        else:
-                            new_mention_text = get_mention_text_w_properties_glove(new_mention_dict, common_feature_values, w2v_model, sentence_vec)
+                            new_mention_text = get_mention_text_w_properties(new_mention_dict, common_feature_values)
+                        if new_mention_text is not None:
+                            for m in switchable_mentions:
+                                mentions_to_switch.append((m, new_mention_text))
                     else:
-                        new_mention_text = get_mention_text_w_properties(new_mention_dict, common_feature_values)
-                    if new_mention_text is not None:
                         for m in switchable_mentions:
+                            l, r = m
+                            old_text = tokenized_text[l:r+1]
+                            new_mention_text = get_mention_text_diff_structure(old_text, common_feature_values)
                             mentions_to_switch.append((m, new_mention_text))
-                else:
-                    for m in switchable_mentions:
-                        l, r = m
-                        old_text = tokenized_text[l:r+1]
-                        new_mention_text = get_mention_text_diff_structure(old_text, common_feature_values)
-                        mentions_to_switch.append((m, new_mention_text))
-            new_tokenized_text, span_mapping = switch_new_mentions(tokenized_text, mentions_to_switch, bert_tokenizer, lowercase)
-            new_document = bert_simple_detokenize(new_tokenized_text)
-            new_clusters = map_clusters(switch_clusters, span_mapping)
+                new_tokenized_text, span_mapping = switch_new_mentions(tokenized_text, mentions_to_switch, bert_tokenizer, lowercase)
+                new_document = bert_simple_detokenize(new_tokenized_text)
+                new_clusters = map_clusters(switch_clusters, span_mapping)
 
-            #ssplit the tokenized_text for later convenience
-            unflattened_text = split_sentences(client, new_tokenized_text)
+                #ssplit the tokenized_text for later convenience
+                unflattened_text = split_sentences(client2, new_tokenized_text)
 
-            new_example = {'document':new_document,
-                           'tokenized_text': new_tokenized_text,
-                           'unflattened_text': unflattened_text,
-                           cluster_key: new_clusters}
-            for k in example.keys():
-                if k not in new_example.keys():
-                    new_example[k] = example[k]
-            new_examples.append(new_example)
+                new_example = {'document':new_document,
+                               'tokenized_text': new_tokenized_text,
+                               'unflattened_text': unflattened_text,
+                               'gold_clusters': new_clusters}
+                for k in example.keys():
+                    if k not in new_example.keys():
+                        new_example[k] = example[k]
+                new_examples.append(new_example)
 
     return new_examples
 
@@ -738,7 +746,7 @@ def create_more_mention_dict(tsv_path, save_path):
         pickle.dump(new_mention_dict, fw)
 
 
-def get_switched_test_data(load_mention_path, pred_path, output_name, lowercase=True, switch_type='simple'):
+def get_switched_test_data(load_mention_path, pred_path, output_name, lowercase=True, switch_type='simple', pred_as_golden=False):
     with open(load_mention_path, 'rb') as fr:
         new_mention_dict = pickle.load(fr)
 
@@ -755,7 +763,12 @@ def get_switched_test_data(load_mention_path, pred_path, output_name, lowercase=
     #bert_model_name = './saved_bert'
     bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
 
-    new_examples = switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase, cluster_key="gold_clusters", switch_type=switch_type)
+    if pred_as_golden:
+        cluster_key = "clusters"
+    else:
+        cluster_key = "gold_clusters"
+
+    new_examples = switch_mentions(examples, new_mention_dict, bert_tokenizer, lowercase, cluster_key=cluster_key, switch_type=switch_type)
 
     json_out_path = output_name + '.json'
     instance_out_path = output_name + '.ist'
@@ -787,8 +800,12 @@ def main():
     parser.add_argument("--switch_type",
                         default=None,
                         type=str)
+    parser.add_argument("--pred_as_golden",
+                        action='store_true',
+                        help='whether to use pred cluster as golden cluster')
     args = parser.parse_args()
     assert(args.mode in ['switch_mention_pred'])
+    print(args.switch_type)
 
     if args.mode == 'switch_mention_pred':
         assert(args.mentions_path is not None)
@@ -797,7 +814,8 @@ def main():
         get_switched_test_data(load_mention_path=args.mentions_path,
                                pred_path=args.pred_path,
                                output_name=args.output_path,
-                               switch_type=args.switch_type)
+                               switch_type=args.switch_type,
+                               pred_as_golden=args.pred_as_golden)
 
 
 if __name__ == '__main__':

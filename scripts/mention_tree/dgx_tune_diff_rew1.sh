@@ -7,10 +7,10 @@ export COREF_TEST_DATA_PATH=/fortest/xzh/datasets/coref/allen/test.english.v4_go
 
 
 python -m mention_tree_gen.auto_mention_switcher \
-            --lambda_pen 0.1 \
+            --lambda_pen 0.2 \
             --do_train \
             --do_eval \
-            --output_dir ./outputs/mention_tree_selfcritic_1021_detection \
+            --output_dir ./outputs/mention_tree_selfcritic_1028_detection_01 \
             --train_data_path $COREF_TRAIN_DATA_PATH \
             --eval_data_path $COREF_DEV_DATA_PATH \
             --attackee_path ./outputs/mentionswitch_really_baseline_0910 \

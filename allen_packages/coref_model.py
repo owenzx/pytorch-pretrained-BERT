@@ -333,11 +333,14 @@ class MyCoreferenceResolver(Model):
             #output_dict["id"] = [x["sen_id"] for x in metadata]
         if not consist_only:
             if self.detection_consistency_loss:
-                output_dict["loss"] = output_dict["sl_loss"] + self.lambda_consist * output_dict["consis_loss"]
-            else:
                 output_dict["loss"] = output_dict["sl_loss"] + self.lambda_consist * output_dict["consis_loss"] + self.lambda_detection_consist * output_dict["detection_consis_loss"]
+            else:
+                output_dict["loss"] = output_dict["sl_loss"] + self.lambda_consist * output_dict["consis_loss"]
         else:
-            output_dict["loss"] = output_dict["consis_loss"]
+            if self.detection_consistency_loss:
+                output_dict["loss"] = output_dict["consis_loss"] + self.lambda_detection_consist * output_dict["detection_consis_loss"]
+            else:
+                output_dict["loss"] = output_dict["consis_loss"]
         return output_dict
 
 

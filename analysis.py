@@ -4,7 +4,6 @@ import sys
 import json
 
 
-
 def is_overlap(l1, r1, l2, r2):
     if (r1 < l2) or (r2 < l1):
         return False

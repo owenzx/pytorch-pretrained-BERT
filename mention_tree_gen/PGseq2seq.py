@@ -16,7 +16,7 @@ from allennlp.modules.similarity_functions import SimilarityFunction
 from allennlp.models.model import Model
 from allennlp.modules.token_embedders import Embedding
 from allennlp.nn import util
-from allennlp.nn.util import masked_softmax
+from allennlp.nn.util import masked_log_softmax, masked_softmax
 from allennlp.nn.beam_search import BeamSearch
 from allennlp.training.metrics import BLEU
 from allennlp.models.encoder_decoders import SimpleSeq2Seq
@@ -99,7 +99,6 @@ class PGSeq2Seq(SimpleSeq2Seq):
     def _encode(self, source_tokens: Dict[str, torch.Tensor], source_span: torch.LongTensor) -> Dict[str, torch.Tensor]:
         # shape: (batch_size, max_input_sequence_length, encoder_input_dim)
         embedded_input = self._source_embedder(source_tokens)
-        print(source_span.shape)
         source_span = source_span.float()
         concat_input = torch.cat((embedded_input, torch.unsqueeze(source_span, -1)), -1)
         # shape: (batch_size, max_input_sequence_length)
@@ -117,6 +116,58 @@ class PGSeq2Seq(SimpleSeq2Seq):
     #    for cfg in action_cfgs:
     #        pass
 
+
+    @overrides
+    def take_step(self,
+                  last_predictions: torch.Tensor,
+                  state: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """
+        Take a decoding step. This is called by the beam search class.
+
+        Parameters
+        ----------
+        last_predictions : ``torch.Tensor``
+            A tensor of shape ``(group_size,)``, which gives the indices of the predictions
+            during the last time step.
+        state : ``Dict[str, torch.Tensor]``
+            A dictionary of tensors that contain the current state information
+            needed to predict the next step, which includes the encoder outputs,
+            the source mask, and the decoder hidden state and context. Each of these
+            tensors has shape ``(group_size, *)``, where ``*`` can be any other number
+            of dimensions.
+
+        Returns
+        -------
+        Tuple[torch.Tensor, Dict[str, torch.Tensor]]
+            A tuple of ``(log_probabilities, updated_state)``, where ``log_probabilities``
+            is a tensor of shape ``(group_size, num_classes)`` containing the predicted
+            log probability of each class for the next step, for each item in the group,
+            while ``updated_state`` is a dictionary of tensors containing the encoder outputs,
+            source mask, and updated decoder hidden state and context.
+
+        Notes
+        -----
+            We treat the inputs as a batch, even though ``group_size`` is not necessarily
+            equal to ``batch_size``, since the group may contain multiple states
+            for each source sentence in the batch.
+        """
+        # shape: (group_size, num_classes)
+        if 'total_actions' not in state.keys():
+            state['total_actions'] = torch.unsqueeze(last_predictions,0)
+        else:
+            state['total_actions'] = torch.cat((state['total_actions'], torch.unsqueeze(last_predictions,0)), -1)
+        #for k in state.keys():
+        #    print(state[k].shape)
+        #print(state['total_actions'])
+        output_projections, state = self._prepare_output_projections(last_predictions, state)
+
+        # shape: (group_size, num_classes)
+        #class_log_probabilities = F.log_softmax(output_projections, dim=-1)
+        action_history = state['total_actions']
+        class_mask = self._get_class_mask(action_history)
+        class_log_probabilities = masked_log_softmax(output_projections, class_mask, dim=-1)
+
+        return class_log_probabilities, state
 
 
 
@@ -156,6 +207,7 @@ class PGSeq2Seq(SimpleSeq2Seq):
 
         step_logits: List[torch.Tensor] = []
         step_predictions: List[torch.Tensor] = []
+        entropies: List[torch.Tensor] = []
         action_history = []
         for timestep in range(num_decoding_steps):
             if self.training and torch.rand(1).item() < self._scheduled_sampling_ratio:
@@ -184,6 +236,18 @@ class PGSeq2Seq(SimpleSeq2Seq):
             #print(class_mask)
             #print(output_projections)
             class_probabilities = masked_softmax(output_projections, class_mask, dim=-1, memory_efficient=True)
+            safe_class_probabilities = class_probabilities + 1e-45 * (1 - class_mask)
+            plogps = -safe_class_probabilities * torch.log(safe_class_probabilities)
+            #print(class_probabilities)
+            #print(class_mask)
+            #print(safe_class_probabilities)
+            #print(plogps)
+            #print(safe_class_probabilities)
+            #print(plogps)
+            #print(class_mask)
+            #print(plogps*class_mask)
+            entropy = torch.sum(plogps*class_mask)
+            entropies.append(entropy.detach().cpu().numpy())
             #print(class_probabilities.shape)
 
             #print(class_mask.shape)
@@ -204,11 +268,11 @@ class PGSeq2Seq(SimpleSeq2Seq):
         # shape: (batch_size, num_decoding_steps)
         predictions = torch.cat(step_predictions, 1)
 
-        output_dict = {"predictions": predictions}
+        output_dict = {"predictions": predictions, "entropies":entropies}
 
         if target_tokens:
-            print("CHECK1")
-            print(loss_weights)
+            #print("CHECK1")
+            #print(loss_weights)
             # shape: (batch_size, num_decoding_steps, num_classes)
             logits = torch.cat(step_logits, 1)
 

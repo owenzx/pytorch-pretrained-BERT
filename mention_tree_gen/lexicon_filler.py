@@ -346,7 +346,16 @@ class LexiconFiller(object):
 
 
     def get_available_action_hn(self, action_history):
-        action_history = [a.cpu().numpy() for a in action_history]
+        if type(action_history) == list:
+            action_history = [a.cpu().numpy() for a in action_history]
+        else:
+            action_history = action_history.cpu().numpy().tolist()
+            #print(action_history)
+            if len(action_history)>1:
+                raise NotImplementedError
+            else:
+                action_history = action_history[0]
+            action_history = [[x] for x in action_history]
         #print(action_history[0].shape)
         cfgs = [self.idx2cfg[idx[0]] for idx in action_history]
         #cfgs = get_cfg_from_idx(action_history)
@@ -356,7 +365,8 @@ class LexiconFiller(object):
         else:
             print(cfgs)
             for cfg in cfgs:
-                root = self.apply_cfg_rules_to_tree(cfg, root)
+                if cfg!='@start@':
+                    root = self.apply_cfg_rules_to_tree(cfg, root)
             expandable = None
             for node in PreOrderIter(root):
                 if node.is_leaf:

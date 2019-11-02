@@ -13,8 +13,6 @@
   "model": {
     "type": "my_coref",
     "bert_model": "bert-base-uncased",
-    "consistency_loss": true,
-    "mention_dict_path": "./cache/debug_conll_train.corpus",
     "mention_feedforward": {
         "input_dim": 2324,
         "num_layers": 2,
@@ -42,14 +40,13 @@
     "batch_size": 1
   },
   "trainer": {
-    "type": "ssl-trainer",
     "num_epochs": 20,
     "cuda_device" : 0,
     "validation_metric": "+coref_f1",
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
-      "num_epochs": 20,
-      "num_steps_per_epoch":4735
+      "num_epochs": 30,
+      "num_steps_per_epoch":1916
     },
     "optimizer": {
       "type": "bert_adam",

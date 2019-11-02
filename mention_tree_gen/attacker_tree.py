@@ -78,9 +78,15 @@ class AttackerTree(object):
     def train_controller_w_reward(self, instance, prediction, reward):
         #self.controller.eval()
         target_tokens = {'tokens': torch.cat( (torch.unsqueeze(prediction['predictions'][0], 0), torch.unsqueeze(torch.Tensor([self.controller._end_index]).long().cuda(), 0)), -1)}
-        controller_loss = self.controller.forward(instance[0]['text'], instance[0]['selected_mentions'], target_tokens, loss_weights = -reward, get_prediction=True)
+        controller_loss = self.controller.forward(instance[0]['text'], instance[0]['selected_mentions'], target_tokens, loss_weights = reward, get_prediction=False)
         #self.controller.train()
         return controller_loss
+
+    def get_loss_entropy(self, instance, prediction):
+        target_tokens = {'tokens': torch.cat( (torch.unsqueeze(prediction['predictions'][0], 0), torch.unsqueeze(torch.Tensor([self.controller._end_index]).long().cuda(), 0)), -1)}
+        controller_output = self.controller.forward(instance[0]['text'], instance[0]['selected_mentions'], target_tokens, get_prediction=False)
+        return controller_output
+
 
 
     #def get_new_mention_text(self, decoder_outdict, whole_sentence, np_head):
@@ -184,9 +190,16 @@ class EditAttackerTree(object):
         #self.controller.eval()
         self.lexicon_filler.set_inital_tree(instance[0]['metadata'][0]['original_parse'])
         target_tokens = {'tokens': torch.cat( (torch.unsqueeze(prediction['predictions'][0], 0), torch.unsqueeze(torch.Tensor([self.controller._end_index]).long().cuda(), 0)), -1)}
-        controller_loss = self.controller.forward(instance[0]['text'], instance[0]['selected_mentions'], instance[0]['parse'], target_tokens, loss_weights = -reward, get_prediction=True)
+        controller_loss = self.controller.forward(instance[0]['text'], instance[0]['selected_mentions'], instance[0]['parse'], target_tokens, loss_weights = reward, get_prediction=False)
         #self.controller.train()
         return controller_loss
+
+
+
+    def get_loss_entropy(self, instance, prediction):
+        target_tokens = {'tokens': torch.cat( (torch.unsqueeze(prediction['predictions'][0], 0), torch.unsqueeze(torch.Tensor([self.controller._end_index]).long().cuda(), 0)), -1)}
+        controller_output = self.controller.forward(instance[0]['text'], instance[0]['selected_mentions'], target_tokens, get_prediction=False)
+        return controller_output
 
 
     def get_new_mention_text(self, decoder_outdict, metadata):

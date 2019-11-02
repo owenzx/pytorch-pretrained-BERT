@@ -618,6 +618,29 @@ def make_text_tensors(tokenized_text, max_pieces, bert_tokenizer, fake_token_ind
     text_field = TextField([Token(word, text_id=bert_tokenizer.vocab[word]) for word in tokenized_text][:max_pieces], fake_token_indexer)
     return text_field
 
+def create_small_datasets(train_data_path):
+    portions = [0.1, 0.5]
+    with open(train_data_path, 'r') as fr:
+        lines = fr.readlines()
+    #first organize into paragraphs
+    paras = []
+    for line in lines:
+        if line[:6] == '#begin':
+            paras.append([])
+        paras[-1].append(line)
+
+    for p in portions:
+        portion_file_path = train_data_path.replace("train", "train%d" % (p*100))
+        with open(portion_file_path, 'w') as fw:
+            for para in paras[:int(len(paras)*p)]:
+                for line in para:
+                    fw.write(line)
+
+
+
+
+
+
 
 
 
@@ -630,5 +653,6 @@ if __name__ == '__main__':
 
     #prepare4translation(raw_file='./datasets/mtl-dataset/subdatasets/apparel/train.tsv')
     #extract_source_from_middle(middle_file='../ref_repos/paraphrase_translation/middle.out')
-    pass
+    train_data_path = "/playpen/home/xzh/datasets/coref/allen/train.english.v4_gold_conll"
+    create_small_datasets(train_data_path)
 

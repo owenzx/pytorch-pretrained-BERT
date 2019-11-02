@@ -33,6 +33,8 @@ EXAMPLE_LOG_NAME = "examples.log"
 logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
+#logging.getLogger().setLevel(logging.INFO)
+#logger.setLevel(logging.INFO)
 
 
 
@@ -117,7 +119,7 @@ def get_reward(gen_mention_cfg, gen_mention_text, model, attackee, old_metrics, 
     # TODO also fix new
 
     if gen_mention_text is None:
-        base_reward = -100
+        base_reward = -10
     else:
         new_ee_example_dict, new_target_text_span = get_switched_ee_example(gen_mention_text, old_example[0]['metadata'][0])
         #new_ee_example_dict = er_example[0]['metadata'][0]
@@ -222,9 +224,12 @@ def train_model(model, attackee, train_examples, vocab, optimizer, args, logger,
             if args.baseline == 'beam_search':
                 baseline_mention_cfgs = model.beam_search_new_mention(er_example)
                 #baseline_mention_text = model.get_new_mention_text(new_mention_cfgs, er_example[0]['metadata'][0]['original_text'], er_example[0]['metadata'][0]['np_head'])
-                baseline_mention_text = model.get_new_mention_text(new_mention_cfgs, er_example[0]['metadata'][0])
-
+                baseline_mention_text = model.get_new_mention_text(baseline_mention_cfgs, er_example[0]['metadata'][0])
+                #get top search result
+                baseline_mention_cfgs['predictions'] = baseline_mention_cfgs['predictions'][0]
                 baseline_reward = get_reward(baseline_mention_cfgs, baseline_mention_text, model, attackee, old_metrics, er_example, old_ee_results, attackee_old_inst, w2v_model, args)
+                if args.entropy_weight!=0.0:
+                    baseline_entropy = np.mean(model.get_loss_entropy(er_example, baseline_mention_cfgs)['entropies'])
             else:
                 baseline_reward = 0
 
@@ -235,12 +240,25 @@ def train_model(model, attackee, train_examples, vocab, optimizer, args, logger,
                 avg_reward = total_reward
             else:
                 avg_reward = avg_reward * args.exp_avg_w + final_reward * (1 - args.exp_avg_w)
-            #print("TOTAL REWARD: ")
-            #print(total_reward)
-            #print("FINAL REWARD: ")
-            #print(final_reward)
+            print(total_reward)
+            print(baseline_reward)
+            logger.info("  Avg reward=%f", avg_reward)
+            logger.info("  Train reward=%f", final_reward)
 
-            loss = model.train_controller_w_reward(er_example, new_mention_cfgs, final_reward)['loss']
+            #controller_outputs = model.train_controller_w_reward(er_example, new_mention_cfgs, final_reward)
+            #loss = controller_outputs['loss']
+
+            controller_outputs = model.get_loss_entropy(er_example, new_mention_cfgs)
+            loss = controller_outputs['loss']
+            entropy = np.mean(controller_outputs['entropies'])
+            if args.entropy_weight != 0.0:
+                reward = final_reward + args.entropy_weight * (entropy - baseline_entropy)
+            else:
+                reward = final_reward
+
+            loss = loss * reward
+
+
             if gradient_accumulation_step is not None:
                 loss = loss / gradient_accumulation_step
             loss.backward()
@@ -250,6 +268,7 @@ def train_model(model, attackee, train_examples, vocab, optimizer, args, logger,
 
         if eval_examples is not None:
             eval_model(model, attackee, eval_examples, vocab, args, logger, epoch_num=epoch_i)
+        #exit()
     return train_stats
 
 
@@ -322,7 +341,8 @@ def eval_model(model, attackee, eval_examples, vocab, args, logger, epoch_num=No
     #if epoch_num is not None:
     #    print("EPOCH NO. " + str(epoch_num))
     #print(eval_metrics)
-    logging.info(eval_metrics)
+    logger.info("  Eval results:")
+    logger.info(eval_metrics)
     get_samples_log(model, vocab, eval_examples, args, epoch_num=epoch_num, sample_num=10)
 
     return eval_metrics
@@ -472,6 +492,10 @@ def main():
                         type=float,
                         default=1.0,
                         help='weight for mention-detection-f1')
+    parser.add_argument('--entropy_weight',
+                        type=float,
+                        default=0.0,
+                        help = 'the regularization weight for entropy, maybe 0.0001 is better?')
 
 
     # Model structure hyper-parameteres
@@ -491,7 +515,7 @@ def main():
                         default=0.0)
     parser.add_argument('--lr',
                         type=float,
-                        default=1e-3)
+                        default=1e-4)
 
     parser.add_argument('--len_pen',
                         type=float,
@@ -546,11 +570,22 @@ def main():
 
     log_file = os.path.join(args.output_dir, LOG_NAME)
 
+    print(log_file)
+
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S',
                         level = logging.INFO,
                         filename=log_file,
                         filemode='a')
+
+    #logging.getLogger().setLevel(logging.INFO)
+    logger.setLevel(logging.INFO)
+    fh = logging.FileHandler(log_file)
+    fh.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s -   %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    logger.info("*****  Start Logging *****")
 
 
     if args.do_train:

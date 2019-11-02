@@ -8,13 +8,16 @@
     "max_span_width": 25
   },
   "train_data_path": std.extVar("COREF_TRAIN_DATA_PATH"),
+  "unl_data_path": std.extVar("COREF_UNL_DATA_PATH"),
   "validation_data_path": std.extVar("COREF_DEV_DATA_PATH"),
   "test_data_path": std.extVar("COREF_TEST_DATA_PATH"),
   "model": {
     "type": "my_coref",
     "bert_model": "bert-base-uncased",
-    "consistency_loss": true,
+    "semi_supervise": true,
     "mention_dict_path": "./cache/debug_conll_train.corpus",
+    "lambda_consist": 10000.0,
+    "consistency_loss": true,
     "mention_feedforward": {
         "input_dim": 2324,
         "num_layers": 2,
@@ -49,7 +52,7 @@
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":4735
+      "num_steps_per_epoch":9470
     },
     "optimizer": {
       "type": "bert_adam",

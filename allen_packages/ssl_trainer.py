@@ -328,7 +328,7 @@ class SSLTrainer(TrainerBase):
                                    " 'loss' key in the output of model.forward(inputs).")
             loss = None
 
-        return loss
+        return loss, output_dict
 
     def _train_epoch(self, epoch: int) -> Dict[str, float]:
         """
@@ -408,7 +408,7 @@ class SSLTrainer(TrainerBase):
 
             self.optimizer.zero_grad()
 
-            loss = self.batch_loss(batch_group, for_training=True)
+            loss, output_dict = self.batch_loss(batch_group, for_training=True)
 
             if  self._gradient_accumulation_normalization:
                 loss /= self._gradient_accumulation_steps
@@ -461,6 +461,13 @@ class SSLTrainer(TrainerBase):
                 self._tensorboard.log_parameter_and_gradient_statistics(self.model, batch_grad_norm)
                 self._tensorboard.log_learning_rates(self.model, self.optimizer)
 
+                if "consis_loss" in output_dict.keys():
+                    self._tensorboard.add_train_scalar("loss/loss_train_consis", output_dict["consis_loss"])
+                if "detection_consis_loss" in output_dict.keys():
+                    self._tensorboard.add_train_scalar("loss/loss_train_detection_consis", output_dict["detection_consis_loss"])
+
+
+                print(str(i) + '\t' + str(self.step_supervise) + '\t' + str(self.step_unlabel))
                 if i % (self.step_supervise + self.step_unlabel) < self.step_supervise:
                     self._tensorboard.add_train_scalar("loss/loss_train", metrics["loss"])
                 else:
@@ -523,7 +530,7 @@ class SSLTrainer(TrainerBase):
         val_loss = 0
         for batch_group in val_generator_tqdm:
 
-            loss = self.batch_loss(batch_group, for_training=False)
+            loss, output_dict = self.batch_loss(batch_group, for_training=False)
             if loss is not None:
                 # You shouldn't necessarily have to compute a loss for validation, so we allow for
                 # `loss` to be None.  We need to be careful, though - `batches_this_epoch` is

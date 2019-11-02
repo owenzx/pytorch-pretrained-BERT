@@ -13,7 +13,10 @@
   "model": {
     "type": "my_coref",
     "bert_model": "bert-base-uncased",
+    "lambda_consist": 10000.0,
+    "lambda_detection_consist": 0.01,
     "consistency_loss": true,
+    "detection_consistency_loss": true,
     "mention_dict_path": "./cache/debug_conll_train.corpus",
     "mention_feedforward": {
         "input_dim": 2324,

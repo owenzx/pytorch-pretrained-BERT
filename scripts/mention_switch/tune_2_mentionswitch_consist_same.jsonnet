@@ -14,6 +14,7 @@
     "type": "my_coref",
     "bert_model": "bert-base-uncased",
     "consistency_loss": true,
+    "lambda_consist": 100.0,
     "mention_dict_path": "./cache/debug_conll_train.corpus",
     "mention_feedforward": {
         "input_dim": 2324,
