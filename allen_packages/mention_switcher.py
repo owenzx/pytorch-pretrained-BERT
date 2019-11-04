@@ -118,6 +118,8 @@ def apply_switch_pron(cluster_mentions, aug_magn):
         if m_features['mentionType'] == 'PRONOMINAL':
             continue
         non_pronouns.append(span_text)
+    if len(non_pronouns) == 0:
+        return cluster_mentions
 
     for i, m in enumerate(cluster_mentions):
         span, span_text, m_features = m
