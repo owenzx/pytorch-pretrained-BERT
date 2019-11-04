@@ -15,6 +15,7 @@
     "bert_model": "bert-base-uncased",
     "consistency_loss": true,
     "lambda_consist": 10000.0,
+    "mention_switcher_type": "controller",
     "mention_dict_path": "./cache/debug_conll_train.corpus",
     "mention_feedforward": {
         "input_dim": 2324,
@@ -35,15 +36,16 @@
     "max_span_width": 25,
     "spans_per_word": 0.4,
     "max_antecedents": 150,
-    "ways_arg": ["abc", "def", "ghi"],
+    "ways_arg": ["switch_glove", "switch_pron", "add_clause", "simplify_np"],
     "num_aug_prob": 5,
     "num_aug_magn": 4,
     "controller_hid": 128,
     "softmax_temperature": 1.0,
     "num_mix": 3,
     "input_aware": false,
+    "baseline": "greedy",
     "initializer":[
-      ["(?!mention_switcher.*)(.*)", {"type": "pretrained", "weights_file_path": "./outputs/mentionswitch_really_baseline_0917/best.th", "parameter_name_overrides": {}}]
+      ["(?!^mention_switcher.*$)(^.*$)", {"type": "pretrained", "weights_file_path": "./outputs/mentionswitch_really_baseline_0917/best.th", "parameter_name_overrides": {}}]
     ]
   },
   "iterator": {
@@ -53,10 +55,12 @@
     "batch_size": 1
   },
   "trainer": {
+    "train_model":false,
+    "train_controller":true,
     "type": "lasy-trainer",
     "num_epochs": 20,
     "cuda_device" : 0,
-    "validation_metric": "+coref_f1",
+    "validation_metric": "+avg_reward",
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
@@ -71,6 +75,10 @@
         [["bert_model.*bias", "bert_model.*LayerNorm.bias", "bert_model.*LayerNorm.weight", "bert_model.*layer_norm.weight"], {"weight_decay": 0.0}],
         [["_antecedent_feedforward", "_mention_pruner", "_antecedent_scorer", "_endpoint_span_extractor", "_attentive_span_extractor", "_distance_embedding"], {"lr":2e-4, "parameter_groups":[[["bias", "LayerNorm.bias", "LayerNorm.weight", "layer_norm.weight"], {"weight_decay": 0.0}]]}]
       ]
+    },
+    "optimizer_controller": {
+      "type": "adam",
+      "lr": 1e-5
     }
   }
 }

@@ -40,10 +40,12 @@ def apply_switch_glove(cluster_mentions, w2v_model, mention_dict):
                        'nerString':{},
                        'gender':{}}
     mention_vec = None
+    non_empty = False
     for i, m in enumerate(cluster_mentions):
         span, span_text, m_features = m
         if m_features['mentionType'] == 'PRONOMINAL':
             continue
+        non_empty = True
         if mention_vec is None:
             whitespace_tokens = bert_simple_detokenize(span_text).split(' ')
             mention_vec = get_sentence_vec(whitespace_tokens, w2v_model)
@@ -53,6 +55,8 @@ def apply_switch_glove(cluster_mentions, w2v_model, mention_dict):
                 common_features[k][m_features[k]] += 1
             else:
                 common_features[k][m_features[k]] = 1
+    if not non_empty:
+        return cluster_mentions
 
     common_features['mentionType']['pronominal'] = 0 # Ignore all the pronominal mention
     common_feature_values = {}
