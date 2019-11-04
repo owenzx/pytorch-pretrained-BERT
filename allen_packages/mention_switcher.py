@@ -268,7 +268,7 @@ class ControllerMentionSwitcher(torch.nn.Module):
         #mentions_to_switch = self.model.apply_policy_dict(tokenized_text, switch_clusters, ssl_policy_dict)
 
 
-
+        mentions_to_switch = []
         for idx_c1, c in enumerate(switch_clusters):
             mention_vec = None
             #filter out the mentions overlapped with other mentions
@@ -336,7 +336,7 @@ class ControllerMentionSwitcher(torch.nn.Module):
 
 
 
-        mentions_to_switch = [(m[0], m[1]) for m in cluster_mentions]
+            mentions_to_switch += [(m[0], m[1]) for m in cluster_mentions]
 
         #TODO delete this
         #mentions_to_switch = []
