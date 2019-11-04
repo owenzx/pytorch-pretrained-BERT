@@ -427,7 +427,10 @@ class LasyTrainer(TrainerBase):
                 raise ValueError("nan loss encountered")
 
             if self.train_model:
-                loss.backward()
+                if self.train_controller:
+                    loss.backward(retain_graph=True)
+                else:
+                    loss.backward()
             if self.train_controller:
                 loss_controller.backward()
 
