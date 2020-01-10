@@ -67,7 +67,7 @@ def merge_generators(a, b, step_a=1, step_b=1):
 class LasyTrainer(TrainerBase):
     def __init__(self,
                  model: Model,
-                 optimizer: torch.optim.Optimizer,
+                 optimizer: Optional[torch.optim.Optimizer],
                  iterator: DataIterator,
                  dataset_reader: DatasetReader,
                  unlabel_path: Optional[str],
@@ -412,9 +412,10 @@ class LasyTrainer(TrainerBase):
             batches_this_epoch += 1
             self._batch_num_total += 1
             batch_num_total = self._batch_num_total
-
-            self.optimizer.zero_grad()
-            self.optimizer_controller.zero_grad()
+            if self.train_model:
+                self.optimizer.zero_grad()
+            if self.train_controller:
+                self.optimizer_controller.zero_grad()
 
             loss, output_dict = self.batch_loss(batch_group, for_training=True)
             loss_controller = output_dict['controller_optim_loss']
@@ -427,10 +428,7 @@ class LasyTrainer(TrainerBase):
                 raise ValueError("nan loss encountered")
 
             if self.train_model:
-                if self.train_controller:
-                    loss.backward(retain_graph=True)
-                else:
-                    loss.backward()
+                loss.backward()
             if self.train_controller:
                 loss_controller.backward()
 
@@ -444,6 +442,9 @@ class LasyTrainer(TrainerBase):
                 self._learning_rate_scheduler.step_batch(batch_num_total)
             if self._momentum_scheduler:
                 self._momentum_scheduler.step_batch(batch_num_total)
+
+            if i % 100 == 0:
+                torch.cuda.empty_cache()
 
             if i % self._gradient_accumulation_steps == 0:
                 if self._tensorboard.should_log_histograms_this_batch():
@@ -481,7 +482,10 @@ class LasyTrainer(TrainerBase):
             # Log parameter values to Tensorboard
             if self._tensorboard.should_log_this_batch():
                 self._tensorboard.log_parameter_and_gradient_statistics(self.model, batch_grad_norm)
-                self._tensorboard.log_learning_rates(self.model, self.optimizer)
+                if self.train_model:
+                    self._tensorboard.log_learning_rates(self.model, self.optimizer)
+                if self.train_controller:
+                    self._tensorboard.log_learning_rates(self.model, self.optimizer_controller)
 
                 if "consis_loss" in output_dict.keys():
                     self._tensorboard.add_train_scalar("loss/loss_train_consis", output_dict["consis_loss"])
@@ -709,10 +713,12 @@ class LasyTrainer(TrainerBase):
         # These are the training states we need to persist.
         training_states = {
                 "metric_tracker": self._metric_tracker.state_dict(),
-                "optimizer": self.optimizer.state_dict(),
-                "optimizer_controller": self.optimizer_controller.state_dict(),
                 "batch_num_total": self._batch_num_total
         }
+        if self.train_model:
+            training_states['optimizer'] = self.optimizer.state_dict()
+        if self.train_controller:
+            training_states['optimizer_controller'] = self.optimizer_controller.state_dict()
 
         # If we have a learning rate or momentum scheduler, we should persist them too.
         if self._learning_rate_scheduler is not None:
@@ -755,14 +761,18 @@ class LasyTrainer(TrainerBase):
             return 0
 
         self.model.load_state_dict(model_state)
-        self.optimizer.load_state_dict(training_state["optimizer"])
-        self.optimizer_controller.load_state_dict(training_state["optimizer_controller"])
+        if self.train_model:
+            self.optimizer.load_state_dict(training_state["optimizer"])
+        if self.train_controller:
+            self.optimizer_controller.load_state_dict(training_state["optimizer_controller"])
         if self._learning_rate_scheduler is not None and "learning_rate_scheduler" in training_state:
             self._learning_rate_scheduler.load_state_dict(training_state["learning_rate_scheduler"])
         if self._momentum_scheduler is not None and "momentum_scheduler" in training_state:
             self._momentum_scheduler.load_state_dict(training_state["momentum_scheduler"])
-        training_util.move_optimizer_to_cuda(self.optimizer)
-        training_util.move_optimizer_to_cuda(self.optimizer_controller)
+        if self.train_model:
+            training_util.move_optimizer_to_cuda(self.optimizer)
+        if self.train_controller:
+            training_util.move_optimizer_to_cuda(self.optimizer_controller)
 
         # Currently the ``training_state`` contains a serialized ``MetricTracker``.
         if "metric_tracker" in training_state:
@@ -842,18 +852,26 @@ class LasyTrainer(TrainerBase):
         parameters = [[n, p] for n, p in model.named_parameters() if p.requires_grad]
         model_parameters = [[n,p] for [n, p] in parameters if "mention_switcher" not in n]
         controller_parameters = [[n, p] for [n, p] in parameters if "mention_switcher" in n]
-        optimizer = Optimizer.from_params(model_parameters, params.pop("optimizer"))
-        optimizer_controller = Optimizer.from_params(controller_parameters, params.pop("optimizer_controller"))
+        if train_model:
+            optimizer = Optimizer.from_params(model_parameters, params.pop("optimizer"))
+        else:
+            unused_params = params.pop("optimizer", None)
+            optimizer = None
+        if train_controller:
+            optimizer_controller = Optimizer.from_params(controller_parameters, params.pop("optimizer_controller"))
+        else:
+            unused_params = params.pop("optimizer_controller", None)
+            optimizer_controller = None
         if "moving_average" in params:
             moving_average = MovingAverage.from_params(params.pop("moving_average"), parameters=parameters)
         else:
             moving_average = None
 
-        if lr_scheduler_params:
+        if lr_scheduler_params and train_model:
             lr_scheduler = LearningRateScheduler.from_params(optimizer, lr_scheduler_params)
         else:
             lr_scheduler = None
-        if momentum_scheduler_params:
+        if momentum_scheduler_params and train_model:
             momentum_scheduler = MomentumScheduler.from_params(optimizer, momentum_scheduler_params)
         else:
             momentum_scheduler = None

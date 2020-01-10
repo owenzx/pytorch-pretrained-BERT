@@ -16,7 +16,10 @@
     "bert_model": "bert-base-uncased",
     "semi_supervise": true,
     "mention_dict_path": "./cache/debug_conll_train.corpus",
-    "lambda_consist": 0.1,
+    "basic_switch_type": "glove_mention",
+    "mask_mention": false,
+    "lambda_consist": 10000.0,
+    "consistency_threshold": 99999,
     "consistency_loss": true,
     "mention_feedforward": {
         "input_dim": 2324,
@@ -46,13 +49,16 @@
   },
   "trainer": {
     "type": "ssl-trainer",
+    "gradient_accumulation_steps": 2,
+    "gradient_accumulation_normalization": true,
     "num_epochs": 20,
     "cuda_device" : 0,
+    "step_unlabel": 1,
     "validation_metric": "+coref_f1",
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":9470
+      "num_steps_per_epoch":491
     },
     "optimizer": {
       "type": "bert_adam",

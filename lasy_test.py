@@ -3,72 +3,11 @@ import sys
 import random
 
 
-CONLL_SET_PATH = '/playpen/home/xzh/datasets/coref/allen/'
-WIKICOREF_PATH = '/playpen/home/xzh/datasets/WikiCoref/'
-BIASCOREF_PATH = '/ssd-playpen/home/xzh/datasets/WinoBias/wino/data/conll_format/'
+#CONLL_SET_PATH = '/playpen/home/xzh/datasets/coref/allen/'
+#WIKICOREF_PATH = '/playpen/home/xzh/datasets/WikiCoref/'
 
-
-
-def get_bias_test_command(comm, final_output_path, model_path=None):
-    switch_type = 'simple'
-
-    # Part 0 parse information from training command
-    if model_path is None:
-        main_comm = comm['main']
-        comm_parts = main_comm.split(' ')
-
-        model_path = comm_parts[comm_parts.index('-s') + 1]
-
-    randint = str(int(random.random() * 1000000000000000000))
-
-    dev_output_path = "./.ats_dev_output" + randint
-    bias_dev_output_path_1a = "./.ats_biasdev_output_1a" + randint
-    bias_dev_output_path_1p = "./.ats_biasdev_output_1p" + randint
-    bias_dev_output_path_2a = "./.ats_biasdev_output_2a" + randint
-    bias_dev_output_path_2p = "./.ats_biasdev_output_2p" + randint
-
-    dev_set_path = CONLL_SET_PATH + "dev.english.v4_gold_conll"
-    bias_dev_path_1a = BIASCOREF_PATH + "dev_type1_anti_stereotype.v4_auto_conll"
-    bias_dev_path_1p = BIASCOREF_PATH + "dev_type1_pro_stereotype.v4_auto_conll"
-    bias_dev_path_2a = BIASCOREF_PATH + "dev_type2_anti_stereotype.v4_auto_conll"
-    bias_dev_path_2p = BIASCOREF_PATH + "dev_type2_pro_stereotype.v4_auto_conll"
-
-    light_model_config_str = '"model":{"consistency_loss":false,"semi_supervise":false}'
-
-    test_command = ""
-
-    # Part I testing on the dev/test set
-    test_command_template = """allennlp evaluate --cuda-device 0 --overrides='{{"dataset_reader":{{"cached_instance_path":null}},{0}}}' --include-package allen_packages --output-file {1} {2} {3}"""
-    # {0} model config, {1} output_dir, {2} model path {3} test set
-
-    test_command_1 = test_command_template.format(light_model_config_str, dev_output_path, model_path,
-                                                  dev_set_path) + '\n'
-    test_command += test_command_1
-
-    test_command_1 = test_command_template.format(light_model_config_str, dev_output_path, model_path,
-                                                  dev_set_path) + '\n'
-    test_command += test_command_1
-
-    test_command_1 = test_command_template.format(light_model_config_str, bias_dev_output_path_1a, model_path, bias_dev_path_1a) + '\n'
-    test_command += test_command_1
-
-    test_command_1 = test_command_template.format(light_model_config_str, bias_dev_output_path_1p, model_path, bias_dev_path_1p) + '\n'
-    test_command += test_command_1
-
-    test_command_1 = test_command_template.format(light_model_config_str, bias_dev_output_path_2a, model_path, bias_dev_path_2a) + '\n'
-    test_command += test_command_1
-
-    test_command_1 = test_command_template.format(light_model_config_str, bias_dev_output_path_2p, model_path, bias_dev_path_2p) + '\n'
-    test_command += test_command_1
-
-
-    # Part IV Merge testing results
-    merge_command_template = """tail -n +1 {0} {1} {2} {3} {4}> {5}"""
-    merge_comand = merge_command_template.format(dev_output_path, bias_dev_output_path_1a, bias_dev_output_path_1p, bias_dev_output_path_2a, bias_dev_output_path_2p,
-                                                 final_output_path) + '\n'
-    test_command += merge_comand
-
-    return test_command
+CONLL_SET_PATH = '/fortest/xzh/datasets/coref/allen/'
+WIKICOREF_PATH = '/fortest/xzh/datasets/WikiCoref/'
 
 
 def get_test_command_from_train_simple_switch_only(comm, final_output_path, model_path=None, switch_type=None):
@@ -88,6 +27,7 @@ def get_test_command_from_train_simple_switch_only(comm, final_output_path, mode
     dev_output_path = "./.ats_dev_output" + randint
     switch_output_path = "./.ats_switch_output" + randint
     switch_output_pred_path = "./.ats_switch_output_pred" + randint
+    gena_output_path = "./.ats_gena_output" + randint
 
     dev_pred_path = './.ats_dev_pred.txt' + randint
     switch_mention_cache_path = './cache/.ats_dev_switch' + randint
@@ -99,6 +39,7 @@ def get_test_command_from_train_simple_switch_only(comm, final_output_path, mode
 
 
     dev_set_path = CONLL_SET_PATH + "dev.english.v4_gold_conll"
+    gena_set_path = WIKICOREF_PATH + 'Evaluation/key-OntoNotesScheme'
 
 
     light_model_config_str = '"model":{"consistency_loss":false,"semi_supervise":false}'
@@ -112,6 +53,11 @@ def get_test_command_from_train_simple_switch_only(comm, final_output_path, mode
 
 
     test_command_1 = test_command_template.format(light_model_config_str, dev_output_path, model_path, dev_set_path) + '\n'
+    test_command += test_command_1
+
+    #Generalization performance
+
+    test_command_1 = test_command_template.format(light_model_config_str, gena_output_path, model_path, gena_set_path) + '\n'
     test_command += test_command_1
 
     # Part III check mention switch attack performance
@@ -147,8 +93,8 @@ def get_test_command_from_train_simple_switch_only(comm, final_output_path, mode
 
 
     # Part IV Merge testing results
-    merge_command_template = """tail -n +1 {0} {1} {2}> {3}"""
-    merge_comand = merge_command_template.format(dev_output_path, switch_output_path, switch_pag_output_path, final_output_path) + '\n'
+    merge_command_template = """tail -n +1 {0} {1} {2} {3}> {4}"""
+    merge_comand = merge_command_template.format(dev_output_path, gena_output_path, switch_output_path, switch_pag_output_path, final_output_path) + '\n'
     test_command += merge_comand
 
     return test_command
@@ -234,7 +180,7 @@ def main():
     switch_type = sys.argv[1]
     train_file = sys.argv[2]
     final_output_path = sys.argv[3]
-    assert switch_type in ['simple', 'switch_pron', 'add_clause', 'glove_close', 'glove_mention', 'full_switch', 'only_simple', 'bias']
+    assert switch_type in ['simple', 'switch_pron', 'add_clause', 'glove_close', 'glove_mention', 'full_switch', 'only_simple']
     if train_file[-3:] == '.sh':
         with open(train_file, 'r') as fr:
             train_command_lines = fr.readlines()
@@ -250,8 +196,6 @@ def main():
 
         if switch_type == 'full_switch':
             raise NotImplementedError
-        elif switch_type == 'bias':
-            test_command = get_bias_test_command(commands, final_output_path, None)
         elif switch_type == 'only_simple':
             test_command = get_test_command_from_train_simple_switch_only(commands, final_output_path, None, switch_type)
         else:
@@ -260,8 +204,6 @@ def main():
     else:
         if switch_type == 'full_switch':
             raise NotImplementedError
-        elif switch_type == 'bias':
-            test_command = get_bias_test_command(None, final_output_path, train_file)
         elif switch_type == 'only_simple':
             test_command = get_test_command_from_train_simple_switch_only(None, final_output_path, train_file, switch_type)
         else:

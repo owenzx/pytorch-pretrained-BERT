@@ -83,11 +83,15 @@ class MyCoreferenceResolver(Model):
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None,
                  consistency_loss: bool = False,
+                 consistency_threshold: float = 1e-3,
                  detection_consistency_loss: bool = False,
                  semi_supervise = False,
                  lambda_consist: float = 1.0,
                  lambda_detection_consist: float = 1.0,
                  mention_dict_path: Optional[str] = None,
+                 basic_switch_type: str = 'diff_mention',
+                 mask_mention: bool = False,
+                 mask_prob: Optional[float] = 0.1,
                  mention_switcher_type: str = 'basic') -> None:
         super(MyCoreferenceResolver, self).__init__(vocab, regularizer)
 
@@ -147,6 +151,10 @@ class MyCoreferenceResolver(Model):
         self.semi_supervise = semi_supervise
         self.consistency_loss = consistency_loss
         self.detection_consistency_loss = detection_consistency_loss
+        self.consistency_threshold = consistency_threshold
+        self.switch_type = basic_switch_type
+        self.mask_mention = mask_mention
+        self.mask_prob = mask_prob
 
 
         if consistency_loss is True:
@@ -308,13 +316,17 @@ class MyCoreferenceResolver(Model):
             output_dict["document"] = [x["original_text"] for x in metadata]
             output_dict["tokenized_text"] = [x["tokenized_text"] if "tokenized_text" in x.keys() else [""] for x in metadata]
             #remove sets to support json serialization
-            if not consist_only:
+            if "clusters" in metadata[0].keys():
                 output_dict['gold_clusters'] = [rm_sets_from_clusters(x["clusters"]) for x in metadata]
 
         # Create modified data for the second forward
         #print("YES?")
         result_output_dict = self.decode(output_dict)
-        new_text, new_spans = self.mention_switcher.get_switch_mention_text_and_spans(result_output_dict, spans)
+        #TODO remove cheating experiments
+
+
+        #new_text, new_spans = self.mention_switcher.get_switch_mention_text_and_spans(result_output_dict, spans, switch_type=self.switch_type, mask_mention=self.mask_mention, mask_prob=self.mask_prob, cheat_clusters=True)
+        new_text, new_spans = self.mention_switcher.get_switch_mention_text_and_spans(result_output_dict, spans, switch_type=self.switch_type, mask_mention=self.mask_mention, mask_prob=self.mask_prob)
         #new_span_labels = span_labels
 
         #The only thing important in metadata here is 'clusters' (list of sets of pairs)
@@ -324,7 +336,13 @@ class MyCoreferenceResolver(Model):
         # Second forward
         new_coref_log_probs, new_total_scores = self._get_coreference_logprobs(new_text, new_spans, num_spans_to_keep, top_span_indices)
         #!!! first param log-prob second param prob
+        #output_dict['consis_loss'] = F.kl_div(coreference_log_probs.detach(), torch.exp(new_coref_log_probs))
         output_dict['consis_loss'] = F.kl_div(coreference_log_probs, torch.exp(new_coref_log_probs))
+
+        if output_dict['consis_loss'] > self.consistency_threshold:
+            output_dict['consis_loss'] = output_dict['consis_loss'].detach()
+            output_dict['consis_loss'].requires_grad = True
+            output_dict['consis_loss'] = output_dict['consis_loss'].clone()
 
         if self.detection_consistency_loss:
             mse_loss = torch.nn.MSELoss()
@@ -338,9 +356,9 @@ class MyCoreferenceResolver(Model):
                 output_dict["loss"] = output_dict["sl_loss"] + self.lambda_consist * output_dict["consis_loss"]
         else:
             if self.detection_consistency_loss:
-                output_dict["loss"] = output_dict["consis_loss"] + self.lambda_detection_consist * output_dict["detection_consis_loss"]
+                output_dict["loss"] = self.lambda_consist * output_dict["consis_loss"] + self.lambda_detection_consist * output_dict["detection_consis_loss"]
             else:
-                output_dict["loss"] = output_dict["consis_loss"]
+                output_dict["loss"] = self.lambda_consist * output_dict["consis_loss"]
         return output_dict
 
 
@@ -455,6 +473,7 @@ class MyCoreferenceResolver(Model):
                     metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
         if span_labels is not None:
             return self.forward_basic(text, spans, span_labels, metadata)
+            #return self.forward_consistency(text, spans, span_labels, metadata, consist_only=False)
         else:
             return self.forward_consistency(text, spans, span_labels, metadata, consist_only=True)
 
@@ -657,7 +676,8 @@ class MyCoreferenceResolver(Model):
             output_dict["document"] = [x["original_text"] for x in metadata]
             output_dict["tokenized_text"] = [x["tokenized_text"] if "tokenized_text" in x.keys() else [""] for x in metadata]
             #remove sets to support json serialization
-            if span_labels is not None:
+            #if span_labels is not None:
+            if "clusters" in metadata[0].keys():
                 output_dict['gold_clusters'] = [rm_sets_from_clusters(x["clusters"]) for x in metadata]
             #output_dict["id"] = [x["sen_id"] for x in metadata]
 

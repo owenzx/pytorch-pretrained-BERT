@@ -84,7 +84,7 @@ class Controller(torch.nn.Module):
             policy.append([])
             for j in range(step_num):
                 # Convert Aug_probs
-                aug_prob = aug_probs[i][j].cpu().numpy()
+                aug_prob = aug_probs[i][j].data.cpu().numpy()
                 aug_prob = self.aug_probs[aug_prob]
                 #if aug_prob == 0:
                 #    aug_prob = 0
@@ -92,7 +92,7 @@ class Controller(torch.nn.Module):
                 #    aug_prob = 2**(float(aug_prob)-3)
 
                 #aug_mgn = aug_mgns[i][j].cpu().numpy() + 1
-                aug_mgn = self.aug_magns[aug_mgns[i][j].cpu().numpy()]
+                aug_mgn = self.aug_magns[aug_mgns[i][j].data.cpu().numpy()]
 
                 policy[i].append((func_names[aug_methods[i][j].data.cpu().numpy()], aug_prob, aug_mgn))
         return policy
@@ -155,7 +155,7 @@ class Controller(torch.nn.Module):
 
             if greedy:
                 _, action = torch.max(probs, 1)
-                action = action.unsqueeze(-1)
+                action = action.unsqueeze(-1).data
             else:
                 action = probs.multinomial(num_samples=1).data
 

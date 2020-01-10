@@ -61,9 +61,9 @@ class AttackerController(torch.nn.Module):
 
 
     def train_controller_w_reward(self,  log_probs, reward, entropies):
-        controller_loss = -log_probs * reward
+        controller_loss = -log_probs * reward.detach()
         if self.entropy_regularize:
-            controller_loss -= self.entropy_coeff * entropies
+            controller_loss -= self.entropy_coeff * entropies.detach()
         #TODO try sum and mean
         controller_loss = controller_loss.sum()
         return controller_loss

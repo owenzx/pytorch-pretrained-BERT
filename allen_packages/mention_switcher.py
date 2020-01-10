@@ -12,7 +12,7 @@ import json
 import numpy as np
 import warnings
 import csv
-from coref_adv import overlapping_span, get_mention_features, get_mention_text_w_properties, switch_new_mentions, map_clusters, get_mention_text_w_properties_glove, get_sentence_vec
+from coref_adv import overlapping_span, get_mention_features, get_mention_text_w_properties, switch_new_mentions, map_clusters, get_mention_text_w_properties_glove, get_sentence_vec, get_mention_text_list_w_properties
 from utils import make_text_tensors
 import torch
 from gensim.models import KeyedVectors as Word2Vec
@@ -156,7 +156,7 @@ def apply_simplify_np(cluster_mentions, wordtags, aug_magn):
 
 #@Model.register("controller_mention_switcher")
 class ControllerMentionSwitcher(torch.nn.Module):
-    def __init__(self, bert_model_name, vocab, max_span_width, ways_arg, num_aug_prob, num_aug_magn, controller_hid, softmax_temperature, num_mix, input_aware, entropy_regularize, entropy_coeff, mention_dict_path):
+    def __init__(self, bert_model_name, vocab, max_span_width, ways_arg, num_aug_prob, num_aug_magn, controller_hid, softmax_temperature, num_mix, input_aware, entropy_regularize, entropy_coeff, mention_dict_path, load_w2v=True):
         super(ControllerMentionSwitcher, self).__init__()
         #TODO clean all the parameters here
         #assert(model_path is not None)
@@ -178,7 +178,9 @@ class ControllerMentionSwitcher(torch.nn.Module):
         self.vocab = vocab
 
         glove_gensim_path = './datasets/glove.840B.300d.w2vformat.txt'
-        self.w2v_model = Word2Vec.load_word2vec_format(glove_gensim_path, limit=30000)
+        #self.w2v_model = Word2Vec.load_word2vec_format(glove_gensim_path, limit=30000)
+        if load_w2v:
+            self.w2v_model = Word2Vec.load_word2vec_format(glove_gensim_path)
         #self.train_controller = self.model.train_controller_w_reward
 
         self.word_tags = nltk.ConditionalFreqDist((w.lower(), t)
@@ -596,10 +598,18 @@ class MentionSwitcher(object):
 
         with open(mention_dict_path, 'rb') as fr:
             self.mention_dict = pickle.load(fr)
+
+        mention_list_dict_path = "./cache/conll_train_mention_list_2.dict"
+        with open(mention_list_dict_path, 'rb') as fr:
+            self.mention_list_dict = pickle.load(fr)
+
         self.fake_token_indexer = {"tokens": SingleIdTokenIndexer()}
 
         self.max_span_width = max_span_width
         glove_gensim_path = './datasets/glove.840B.300d.w2vformat.txt'
+        #self.w2v_model = Word2Vec.load_word2vec_format(glove_gensim_path)
+        #TODO debug code below
+        #self.w2v_model = Word2Vec.load_word2vec_format(glove_gensim_path, limit=3000)
         self.w2v_model = Word2Vec.load_word2vec_format(glove_gensim_path)
         #self.switch_type = 'glove_mention'
 
@@ -645,15 +655,24 @@ class MentionSwitcher(object):
         return full_span_mapping
 
 
-    def get_switch_mention_text_and_spans(self, output_dict, old_spans, switch_type='glove_mention'):
-        assert switch_type in ['simple', 'switch_pron', 'glove_mention']
+    #def get_switch_mention_text_and_spans(self, output_dict, old_spans, switch_type='glove_mention'):
+    def get_switch_mention_text_and_spans(self, output_dict, old_spans, switch_type='diff_mention', mask_mention=False, mask_prob=0.1, cheat_clusters=False):
+        assert switch_type in ['simple', 'switch_pron', 'glove_mention', 'diff_mention']
         # if simple, only switching new mentions to non-pronouns, if switch_pron, also randomly change some pronoun (actually 50%)
-        switch_clusters = output_dict['clusters'][0]
+        if cheat_clusters:
+            switch_clusters = output_dict['gold_clusters'][0]
+        else:
+            switch_clusters = output_dict['clusters'][0]
         #print(switch_clusters)
         #print(output_dict)
         #exit()
 
         tokenized_text = output_dict['tokenized_text'][0]
+        # TODO DEBUG code
+        print("ORIGINAL TOKENS:")
+        print(bert_simple_detokenize(tokenized_text))
+        #END DEBUG code
+
         if switch_type in ['glove_mention']:
             whitespace_tokens = bert_simple_detokenize(tokenized_text).split(' ')
             sentence_vec = get_sentence_vec(whitespace_tokens, self.w2v_model)
@@ -743,16 +762,32 @@ class MentionSwitcher(object):
             common_feature_values = {}
             for k in common_features.keys():
                 common_feature_values[k] = max(common_features[k].items(), key=lambda x:x[1])[0]
-            if switch_type in ['glove_mention'] and sentence_vec is not None:
-                if mention_vec is None:
-                    new_mention_text = get_mention_text_w_properties_glove(self.mention_dict, common_feature_values, self.w2v_model, sentence_vec)
-                else:
-                    new_mention_text = get_mention_text_w_properties_glove(self.mention_dict, common_feature_values, self.w2v_model, mention_vec)
+            if switch_type in ['diff_mention']:
+                new_mention_text_list = get_mention_text_list_w_properties(self.mention_list_dict, common_feature_values)
+                if new_mention_text_list is not None:
+                    for m in switchable_mentions:
+                        new_m = new_mention_text_list[np.random.choice(len(new_mention_text_list))]
+                        mentions_to_switch.append((m, new_m))
             else:
-                new_mention_text = get_mention_text_w_properties(self.mention_dict, common_feature_values)
-            if new_mention_text is not None:
-                for m in switchable_mentions:
-                    mentions_to_switch.append((m, new_mention_text))
+                if switch_type in ['glove_mention'] and sentence_vec is not None:
+                    if mention_vec is None:
+                        new_mention_text = get_mention_text_w_properties_glove(self.mention_dict, common_feature_values, self.w2v_model, sentence_vec)
+                    else:
+                        new_mention_text = get_mention_text_w_properties_glove(self.mention_dict, common_feature_values, self.w2v_model, mention_vec)
+                else:
+                    new_mention_text = get_mention_text_w_properties(self.mention_dict, common_feature_values)
+                if new_mention_text is not None:
+                    for m in switchable_mentions:
+                        mentions_to_switch.append((m, new_mention_text))
+        if mask_mention:
+            for i in range(len(mentions_to_switch)):
+                p = np.random.random()
+                if p < mask_prob:
+                    mentions_to_switch[i] = (mentions_to_switch[i][0] , ['unused0'])
+        #TODO DEBUG CODE
+        print(mentions_to_switch)
+        #End debug
+
         new_tokenized_text, span_mapping = switch_new_mentions(tokenized_text, mentions_to_switch, self.bert_tokenizer, self.lowercase)
         #new_clusters = map_clusters(switch_clusters, span_mapping)
 
@@ -761,6 +796,10 @@ class MentionSwitcher(object):
 
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         new_tokenized_text = new_tokenized_text[:self.max_pieces]
+        #TODO DEBUG CODE
+        print("NEW TOKENS:")
+        print(bert_simple_detokenize(new_tokenized_text))
+        #END debug
         new_text = make_text_tensors(new_tokenized_text, self.max_pieces, self.bert_tokenizer, self.fake_token_indexer)
         new_text.index(self.vocab)
         pad_len = new_text.get_padding_lengths()

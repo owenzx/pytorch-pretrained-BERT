@@ -275,7 +275,7 @@ class Ontonotes:
 
             # Replace brackets in text and pos tags
             # with a different token for parse trees.
-            if pos_tag != "XX" and word != "XX":
+            if pos_tag != "XX" and word != "XX" and pos_tag!="-":
                 if word == "(":
                     parse_word = "-LRB-"
                 elif word == ")":

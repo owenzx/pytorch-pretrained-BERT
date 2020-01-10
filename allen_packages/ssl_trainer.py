@@ -33,12 +33,34 @@ from allennlp.training.trainer import TrainerPieces
 from allennlp.training import util as training_util
 from allennlp.training.moving_average import MovingAverage
 from copy import deepcopy
+import json
+import pathlib
 
 
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
+INNER_BATCH_REPEAT = False
 
+
+def merge_generators_justone(a, b, step_a=1, step_b=1):
+    i = 0
+    b = cycle(b)
+    unit_step = step_a + step_b
+    bb = next(b)
+    while True:
+        try:
+            if i < step_a:
+                yield next(a)
+            else:
+                yield bb
+            i = (i + 1) % unit_step
+        except StopIteration:
+            if i < step_a:
+                print("RUN OUT OF A!")
+            else:
+                print("RUN OUT OF B!")
+            break
 
 def merge_generators(a, b, step_a=1, step_b=1):
     i = 0
@@ -49,7 +71,13 @@ def merge_generators(a, b, step_a=1, step_b=1):
             if i < step_a:
                 yield next(a)
             else:
-                yield  next(b)
+                if INNER_BATCH_REPEAT:
+                    if i == step_a:
+                        bb = next(b)
+                    yield bb
+
+                else:
+                    yield  next(b)
             i = (i + 1) % unit_step
         except StopIteration:
             if i < step_a:
@@ -367,12 +395,43 @@ class SSLTrainer(TrainerBase):
                                             shuffle=self.shuffle)
         train_generator = lazy_groups_of(raw_train_generator, num_gpus)
         num_training_batches = math.ceil(self.iterator.get_num_batches(self.train_data)/num_gpus)
-        unlabeled_data = self.dataset_reader._read_unlabeled(self.unlabel_path)
-        #raw_unlabeled_generator = self.iterator(self.unlabeled_data,
-        raw_unlabeled_generator = self.iterator(unlabeled_data,
+        #if "ssl" in self.unlabel_path:
+        #    unlabeled_data = self.dataset_reader._read(self.unlabel_path)
+        #else:
+        #    unlabeled_data = self.dataset_reader._read_unlabeled(self.unlabel_path)
+
+        #raw_unlabeled_generator = self.iterator(unlabeled_data,
+        raw_unlabeled_generator = self.iterator(self.unlabeled_data,
                                                 num_epochs=1,
                                                 shuffle=self.shuffle)
         unlabeled_generator = lazy_groups_of(raw_unlabeled_generator, num_gpus)
+
+        #TODO DELETE THESE TEST CODES
+        #for i in range(3):
+        #    tmp_train_generator = self.iterator(self.train_data,
+        #                                        num_epochs=1,
+        #                                        shuffle=self.shuffle)
+        #    tmp_train_generator = lazy_groups_of(tmp_train_generator, num_gpus)
+        #    tmp_train_generator = next(tmp_train_generator)
+        #    print("TRAIN:")
+        #    print(tmp_train_generator[0]['metadata'][0]['tokenized_text'])
+
+#            if "ssl" in self.unlabel_path:
+#                unlabeled_data = self.dataset_reader._read(self.unlabel_path)
+#            else:
+#                unlabeled_data = self.dataset_reader._read_unlabeled(self.unlabel_path)
+#            tmp_unlabeled_generator = self.iterator(self.unlabeled_data,
+#                                                    num_epochs=1,
+#                                                    shuffle=self.shuffle)
+#            tmp_unlabeled_generator = lazy_groups_of(tmp_unlabeled_generator, num_gpus)
+#            tmp_unlabeled_generator = next(tmp_unlabeled_generator)
+#            print("UNLABEL:")
+#            print(tmp_unlabeled_generator[0]['metadata'][0]['tokenized_text'])
+#
+#        exit()
+        #END DEBUG CODE
+
+
         self._last_log = time.time()
         last_save_time = time.time()
 
@@ -406,12 +465,27 @@ class SSLTrainer(TrainerBase):
             self._batch_num_total += 1
             batch_num_total = self._batch_num_total
 
-            self.optimizer.zero_grad()
+            if i % self._gradient_accumulation_steps == 0:
+                self.optimizer.zero_grad()
 
             loss, output_dict = self.batch_loss(batch_group, for_training=True)
 
+            #if "consis_loss" in output_dict.keys():
+            #    if i % self._gradient_accumulation_steps == 0:
+            #        logger.info("CONSIS_LOSS (LABLE) at EPOCH %d: %f" %(i, output_dict['consis_loss']))
+            #    else:
+            #        logger.info("CONSIS_LOSS (UNLABLE) at EPOCH %d: %f" %(i, output_dict['consis_loss']))
+
+            if i <= 5:
+                logger.info("Example No. %d"%i)
+                logger.info(str(output_dict["tokenized_text"]))
+
+
             if  self._gradient_accumulation_normalization:
-                loss /= self._gradient_accumulation_steps
+                if i % self._gradient_accumulation_steps == 0:
+                    loss /= 2
+                else:
+                    loss /= 2* (self._gradient_accumulation_steps - 1)
 
             if torch.isnan(loss):
                 raise ValueError("nan loss encountered")
@@ -420,16 +494,16 @@ class SSLTrainer(TrainerBase):
 
             train_loss += loss.item()
 
-            batch_grad_norm = self.rescale_gradients()
 
-            # This does nothing if batch_num_total is None or you are using a
-            # scheduler which doesn't update per batch.
-            if self._learning_rate_scheduler:
-                self._learning_rate_scheduler.step_batch(batch_num_total)
-            if self._momentum_scheduler:
-                self._momentum_scheduler.step_batch(batch_num_total)
+            if i % self._gradient_accumulation_steps == (self._gradient_accumulation_steps - 1):
+                batch_grad_norm = self.rescale_gradients()
+                # This does nothing if batch_num_total is None or you are using a
+                # scheduler which doesn't update per batch.
+                if self._learning_rate_scheduler:
+                    self._learning_rate_scheduler.step_batch(batch_num_total)
+                if self._momentum_scheduler:
+                    self._momentum_scheduler.step_batch(batch_num_total)
 
-            if i % self._gradient_accumulation_steps == 0:
                 if self._tensorboard.should_log_histograms_this_batch():
                     # get the magnitude of parameter updates for logging
                     # We need a copy of current parameters to compute magnitude of updates,
@@ -458,8 +532,9 @@ class SSLTrainer(TrainerBase):
 
             # Log parameter values to Tensorboard
             if self._tensorboard.should_log_this_batch():
-                self._tensorboard.log_parameter_and_gradient_statistics(self.model, batch_grad_norm)
-                self._tensorboard.log_learning_rates(self.model, self.optimizer)
+                if i% self._gradient_accumulation_steps == 0:
+                    self._tensorboard.log_parameter_and_gradient_statistics(self.model, batch_grad_norm)
+                    self._tensorboard.log_learning_rates(self.model, self.optimizer)
 
                 if "consis_loss" in output_dict.keys():
                     self._tensorboard.add_train_scalar("loss/loss_train_consis", output_dict["consis_loss"])
@@ -528,6 +603,7 @@ class SSLTrainer(TrainerBase):
                                        total=num_validation_batches)
         batches_this_epoch = 0
         val_loss = 0
+        consis_val_loss = 0
         for batch_group in val_generator_tqdm:
 
             loss, output_dict = self.batch_loss(batch_group, for_training=False)
@@ -539,9 +615,13 @@ class SSLTrainer(TrainerBase):
                 # gets used for something else, we might need to change things around a bit.
                 batches_this_epoch += 1
                 val_loss += loss.detach().cpu().numpy()
+                if "consis_loss" in output_dict.keys():
+                    consis_val_loss += output_dict['consis_loss'].detach().cpu().numpy()
+
 
             # Update the description with the latest metrics
             val_metrics = training_util.get_metrics(self.model, val_loss, batches_this_epoch)
+            val_metrics['consis_loss'] = float(consis_val_loss/batches_this_epoch) if batches_this_epoch>0 else 0.0
             description = training_util.description_from_metrics(val_metrics)
             val_generator_tqdm.set_description(description, refresh=False)
 
@@ -766,17 +846,23 @@ class SSLTrainer(TrainerBase):
                     recover: bool = False):
         # pylint: disable=arguments-differ
         dataset_reader = DatasetReader.from_params(deepcopy(params.get("dataset_reader")))
-        unlabel_path = params.pop("unl_data_path", None)
-        if unlabel_path is not None:
-            unlabeled_data = dataset_reader._read_unlabeled(unlabel_path)
-        else:
-            unlabeled_data = None
-        pieces = TrainerPieces.from_params(params, serialization_dir, recover)
+
+        #TODO fix unlabel shuffle
+        #unlabel_path = params.pop("unl_data_path", None)
+        unlabel_path = None
+        #if unlabel_path is not None:
+        #    unlabeled_data = dataset_reader._read_unlabeled(unlabel_path)
+        #else:
+        #    unlabeled_data = None
+
+        pieces = SSLTrainerPieces.from_params(params, serialization_dir, recover)
         model = pieces.model
         iterator = pieces.iterator
         train_data = pieces.train_dataset
         validation_data = pieces.validation_dataset
         test_data = pieces.test_dataset
+
+        unlabeled_data = pieces.unlabel_dataset
 
         validation_iterator = DataIterator.from_params(params.pop('iterator', None))
 
@@ -878,3 +964,207 @@ class SSLTrainer(TrainerBase):
 
 
 
+
+
+class SSLTrainerPieces(NamedTuple):
+    """
+    We would like to avoid having complex instantiation logic taking place
+    in `Trainer.from_params`. This helper class has a `from_params` that
+    instantiates a model, loads train (and possibly validation and test) datasets,
+    constructs a Vocabulary, creates data iterators, and handles a little bit
+    of bookkeeping. If you're creating your own alternative training regime
+    you might be able to use this.
+    """
+    model: Model
+    iterator: DataIterator
+    train_dataset: Iterable[Instance]
+    validation_dataset: Iterable[Instance]
+    test_dataset: Iterable[Instance]
+    unlabel_dataset: Iterable[Instance]
+    validation_iterator: DataIterator
+    params: Params
+
+    @staticmethod
+    def from_params(params: Params,
+                    serialization_dir: str,
+                    recover: bool = False,
+                    cache_directory: str = None,
+                    cache_prefix: str = None) -> 'TrainerPieces':
+        all_datasets = ssl_datasets_from_params(params, cache_directory, cache_prefix)
+        datasets_for_vocab_creation = set(params.pop("datasets_for_vocab_creation", all_datasets))
+
+        for dataset in datasets_for_vocab_creation:
+            if dataset not in all_datasets:
+                raise ConfigurationError(f"invalid 'dataset_for_vocab_creation' {dataset}")
+
+        logger.info("From dataset instances, %s will be considered for vocabulary creation.",
+                    ", ".join(datasets_for_vocab_creation))
+
+        if recover and os.path.exists(os.path.join(serialization_dir, "vocabulary")):
+            vocab = Vocabulary.from_files(os.path.join(serialization_dir, "vocabulary"))
+            params.pop("vocabulary", {})
+        else:
+            vocab = Vocabulary.from_params(
+                    params.pop("vocabulary", {}),
+                    (instance for key, dataset in all_datasets.items()
+                     for instance in dataset
+                     if key in datasets_for_vocab_creation)
+            )
+
+        model = Model.from_params(vocab=vocab, params=params.pop('model'))
+
+        # If vocab extension is ON for training, embedding extension should also be
+        # done. If vocab and embeddings are already in sync, it would be a no-op.
+        model.extend_embedder_vocab()
+
+        # Initializing the model can have side effect of expanding the vocabulary
+        vocab.save_to_files(os.path.join(serialization_dir, "vocabulary"))
+
+        iterator = DataIterator.from_params(params.pop("iterator"))
+        iterator.index_with(model.vocab)
+        validation_iterator_params = params.pop("validation_iterator", None)
+        if validation_iterator_params:
+            validation_iterator = DataIterator.from_params(validation_iterator_params)
+            validation_iterator.index_with(model.vocab)
+        else:
+            validation_iterator = None
+
+        train_data = all_datasets['train']
+        validation_data = all_datasets.get('validation')
+        test_data = all_datasets.get('test')
+        unlabel_data = all_datasets.get('unlabel')
+
+        trainer_params = params.pop("trainer")
+        no_grad_regexes = trainer_params.pop("no_grad", ())
+        for name, parameter in model.named_parameters():
+            if any(re.search(regex, name) for regex in no_grad_regexes):
+                parameter.requires_grad_(False)
+
+        frozen_parameter_names, tunable_parameter_names = \
+                    get_frozen_and_tunable_parameter_names(model)
+        logger.info("Following parameters are Frozen  (without gradient):")
+        for name in frozen_parameter_names:
+            logger.info(name)
+        logger.info("Following parameters are Tunable (with gradient):")
+        for name in tunable_parameter_names:
+            logger.info(name)
+
+        return SSLTrainerPieces(model, iterator,
+                             train_data, validation_data, test_data, unlabel_data,
+                             validation_iterator, trainer_params)
+
+
+
+def ssl_datasets_from_params(params: Params,
+                         cache_directory: str = None,
+                         cache_prefix: str = None) -> Dict[str, Iterable[Instance]]:
+    """
+    Load all the datasets specified by the config.
+
+    Parameters
+    ----------
+    params : ``Params``
+    cache_directory : ``str``, optional
+        If given, we will instruct the ``DatasetReaders`` that we construct to cache their
+        instances in this location (or read their instances from caches in this location, if a
+        suitable cache already exists).  This is essentially a `base` directory for the cache, as
+        we will additionally add the ``cache_prefix`` to this directory, giving an actual cache
+        location of ``cache_directory + cache_prefix``.
+    cache_prefix : ``str``, optional
+        This works in conjunction with the ``cache_directory``.  The idea is that the
+        ``cache_directory`` contains caches for all different parameter settings, while the
+        ``cache_prefix`` captures a specific set of parameters that led to a particular cache file.
+        That is, if you change the tokenization settings inside your ``DatasetReader``, you don't
+        want to read cached data that used the old settings.  In order to avoid this, we compute a
+        hash of the parameters used to construct each ``DatasetReader`` and use that as a "prefix"
+        to the cache files inside the base ``cache_directory``.  So, a given ``input_file`` would
+        be cached essentially as ``cache_directory + cache_prefix + input_file``, where you specify
+        a ``cache_directory``, the ``cache_prefix`` is based on the dataset reader parameters, and
+        the ``input_file`` is whatever path you provided to ``DatasetReader.read()``.  In order to
+        allow you to give recognizable names to these prefixes if you want them, you can manually
+        specify the ``cache_prefix``.  Note that in some rare cases this can be dangerous, as we'll
+        use the `same` prefix for both train and validation dataset readers.
+    """
+    dataset_reader_params = params.pop('dataset_reader')
+    validation_dataset_reader_params = params.pop('validation_dataset_reader', None)
+    train_cache_dir, validation_cache_dir = _set_up_cache_files_ssl(dataset_reader_params,
+                                                                validation_dataset_reader_params,
+                                                                cache_directory,
+                                                                cache_prefix)
+
+    dataset_reader = DatasetReader.from_params(dataset_reader_params)
+
+    validation_and_test_dataset_reader: DatasetReader = dataset_reader
+    if validation_dataset_reader_params is not None:
+        logger.info("Using a separate dataset reader to load validation and test data.")
+        validation_and_test_dataset_reader = DatasetReader.from_params(validation_dataset_reader_params)
+
+    if train_cache_dir:
+        dataset_reader.cache_data(train_cache_dir)
+        validation_and_test_dataset_reader.cache_data(validation_cache_dir)
+
+    train_data_path = params.pop('train_data_path')
+    logger.info("Reading training data from %s", train_data_path)
+    train_data = dataset_reader.read(train_data_path)
+
+    datasets: Dict[str, Iterable[Instance]] = {"train": train_data}
+
+    validation_data_path = params.pop('validation_data_path', None)
+    if validation_data_path is not None:
+        logger.info("Reading validation data from %s", validation_data_path)
+        validation_data = validation_and_test_dataset_reader.read(validation_data_path)
+        datasets["validation"] = validation_data
+
+    test_data_path = params.pop("test_data_path", None)
+    if test_data_path is not None:
+        logger.info("Reading test data from %s", test_data_path)
+        test_data = validation_and_test_dataset_reader.read(test_data_path)
+        datasets["test"] = test_data
+
+
+    unl_data_path = params.pop("unl_data_path", None)
+    if unl_data_path is not None:
+        logger.info("Reading unlabel data from %s", unl_data_path)
+        unl_data = dataset_reader.read(unl_data_path)
+        datasets["unlabel"] = unl_data
+
+    return datasets
+
+
+
+def _set_up_cache_files_ssl(train_params: Params,
+                        validation_params: Params = None,
+                        cache_directory: str = None,
+                        cache_prefix: str = None) -> Tuple[str, str]:
+    if not cache_directory:
+        return None, None
+
+    # We need to compute the parameter hash before the parameters get destroyed when they're
+    # passed to `DatasetReader.from_params`.
+    if not cache_prefix:
+        cache_prefix = training_util._dataset_reader_param_hash(train_params)
+        if validation_params:
+            validation_cache_prefix = training_util._dataset_reader_param_hash(validation_params)
+        else:
+            validation_cache_prefix = cache_prefix
+    else:
+        validation_cache_prefix = cache_prefix
+
+    train_cache_dir = pathlib.Path(cache_directory) / cache_prefix
+    validation_cache_dir = pathlib.Path(cache_directory) / validation_cache_prefix
+
+    # For easy human inspection of what parameters were used to create the cache.  This will
+    # overwrite old files, but they should be identical.  This could bite someone who gave
+    # their own prefix instead of letting us compute it, and then _re-used_ that name with
+    # different parameters, without clearing the cache first.  But correctly handling that case
+    # is more work than it's worth.
+    os.makedirs(train_cache_dir, exist_ok=True)
+    with open(train_cache_dir / 'params.json', 'w') as param_file:
+        json.dump(train_params.as_dict(quiet=True), param_file)
+    os.makedirs(validation_cache_dir, exist_ok=True)
+    with open(validation_cache_dir / 'params.json', 'w') as param_file:
+        if validation_params:
+            json.dump(validation_params.as_dict(quiet=True), param_file)
+        else:
+            json.dump(train_params.as_dict(quiet=True), param_file)
+    return str(train_cache_dir), str(validation_cache_dir)

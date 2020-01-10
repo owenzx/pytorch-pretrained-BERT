@@ -59,6 +59,58 @@ def extract_mentions_from_findmypast(tsv_path):
     return mentions
 
 
+def extract_mentions_from_corpus_diff(corpus):
+    mention_dict = {}
+    CUSTOM_PROPS = {'tokenize.whitespace': True}
+    with CoreNLPClient(annotators=['tokenize', 'ssplit', 'coref'], timeout=6000000, memory='16G', be_quiet=False, properties=CUSTOM_PROPS) as client:
+        for sentence in tqdm(corpus):
+            ann = client.annotate(' '.join(sentence))
+            ann_mentions = ann.mentionsForCoref
+            ann_sentences = ann.sentence
+            corefchains = ann.corefChain
+            sentences = [[tok.word for tok in s.token] for s in ann_sentences]
+
+            for chain in corefchains:
+
+                clusters = []
+                mentions = chain.mention
+                common_features = {'mentionType': {},
+                                       'animacy': {},
+                                       'number': {},
+                                       'person': {},
+                                       'nerString':{},
+                                       'gender':{}}
+
+                for mention in mentions:
+                    m_id = mention.mentionID
+                    m = ann_mentions[m_id]
+
+                    if m.mentionType == 'PRONOMINAL':
+                        continue
+                    text= sentences[m.sentNum][m.startIndex:m.endIndex]
+                    if text not in clusters:
+                        clusters.append(text)
+                    m_features = {'mentionType': m.mentionType, 'number':m.number, 'animacy':m.animacy, 'person':m.person, 'nerString':m.nerString, 'gender':m.gender}
+                    for k in m_features.keys():
+                        if m_features[k] in common_features[k].keys():
+                            common_features[k][m_features[k]] += 1
+                        else:
+                            common_features[k][m_features[k]] = 1
+                if len(clusters)>0:
+                    common_features['mentionType']['pronominal'] = 0 # Ignore all the pronominal mention
+                    common_feature_values = {}
+                    for k in common_features.keys():
+                        common_feature_values[k] = max(common_features[k].items(), key=lambda x:x[1])[0]
+                    new_k = get_mention_key(common_feature_values)
+                    if new_k not in mention_dict:
+                        mention_dict[new_k] = [clusters]
+                    else:
+                        mention_dict[new_k].append(clusters)
+
+
+
+    return mention_dict
+
 
 def extract_mentions_from_corpus(corpus):
     mentions = []
@@ -144,16 +196,44 @@ def get_mention_text_w_properties_glove(mentions, p_dict, glove_dict, sentence_v
                 continue
             dist = np.linalg.norm(cand_vec - sentence_vec)
             cand_dist_list.append((c, dist))
+        if len(cand_dist_list) == 0:
+            cand_dist_list = [(c, 1.0) for c in candidates]
         sorted_cand_list = sorted(cand_dist_list, key=lambda x:x[1])
         #TODO tune here
-        selected_cand_list = sorted_cand_list[int(len(sorted_cand_list)*0.05):int(len(sorted_cand_list)*0.15)]
+        selected_cand_list = sorted_cand_list[int(len(sorted_cand_list)*0.05):int(len(sorted_cand_list)*0.15)+1]
 
         result =  selected_cand_list[np.random.choice(len(selected_cand_list), 1)[0]][0]
+        if hasattr(result, 'tolist'):
+            result = result.tolist()
         return result
 
     else:
         return results
 
+def get_mention_text_list_w_properties(mentions, p_dict, choose_one=True):
+    assert(type(mentions) is dict)
+    if p_dict['mentionType'] in ['LIST', 'NONE']:
+        return None
+    query_key = get_mention_key(p_dict)
+    if query_key not in mentions.keys():
+        warnings.warn("!!! WARNING !!!: no matched mentions, not switching.")
+        print(p_dict)
+        return None
+    results = mentions[query_key]
+    #for m in mentions:
+    #    valid_mention = True
+    #
+    #        if m[k] != p_dict[k]:
+    #            valid_mention = False
+    #            break
+    #    if valid_mention:for k in p_dict.keys():
+    #        results.append(m)
+
+    if choose_one:
+        return results[np.random.choice(len(results), 1)[0]]
+
+    else:
+        return results
 
 
 def get_mention_text_w_properties(mentions, p_dict, choose_one=True):
@@ -738,6 +818,18 @@ def run_debug_func(labeled_instance_path=None, load_mentions_path=None, result_j
                 exit()
 
 
+
+def create_more_mention_dict_diff(ins_path, save_path):
+    with open(ins_path, 'rb') as fr:
+        labeled_instances = pickle.load(fr)
+
+    labeled_examples = convert_instances_to_dict(labeled_instances)
+    corpus = [exp['document'] for exp in labeled_examples]
+
+    new_mention_dict = extract_mentions_from_corpus_diff(corpus)
+    with open(save_path, 'wb') as fw:
+        pickle.dump(new_mention_dict, fw)
+
 def create_more_mention_dict(tsv_path, save_path):
     mentions = extract_mentions_from_findmypast(tsv_path=tsv_path)
     new_mention_dict = organize_mention_list_to_dict(mentions)
@@ -832,6 +924,7 @@ if __name__ == '__main__':
     #create_more_mention_dict(tsv_path='./datasets/entities.tsv', save_path='./cache/findmypast.corpus')
     #get_switched_test_data(load_mention_path='./cache/conll_dev_mentions.dict', pred_path='./cache/dev_pred.json', output_name='./cache/conll_dev_gt_add_clause', switch_type='add_clause')
     #get_switched_test_data(load_mention_path='./cache/conll_dev_mentions.dict', pred_path='./cache/dev_pred.json', output_name='./cache/debugging', switch_type='glove_close')
-    main()
+    create_more_mention_dict_diff(ins_path='./cache/conll_train.ins', save_path='./cache/conll_train_mention_list_2.dict')
+    #main()
 
 

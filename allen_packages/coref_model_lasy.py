@@ -163,24 +163,25 @@ class MyCoreferenceResolver(Model):
 
         self.mention_switcher_type = mention_switcher_type
 
-        if consistency_loss is True:
-            if mention_switcher_type == 'controller':
-                self.mention_switcher = ControllerMentionSwitcher(bert_model_name=bert_model,
-                                                                  vocab=vocab,
-                                                                  max_span_width=self._max_span_width,
-                                                                  ways_arg=ways_arg,
-                                                                  num_aug_prob=num_aug_prob,
-                                                                  num_aug_magn=num_aug_magn,
-                                                                  controller_hid=controller_hid,
-                                                                  softmax_temperature=softmax_temperature,
-                                                                  num_mix=num_mix,
-                                                                  input_aware=input_aware,
-                                                                  entropy_regularize=entropy_regularize,
-                                                                  entropy_coeff=entropy_coeff,
-                                                                  mention_dict_path=mention_dict_path)
-            else:
-                raise NotImplementedError
+        if mention_switcher_type == 'controller':
+            self.mention_switcher = ControllerMentionSwitcher(bert_model_name=bert_model,
+                                                              vocab=vocab,
+                                                              max_span_width=self._max_span_width,
+                                                              ways_arg=ways_arg,
+                                                              num_aug_prob=num_aug_prob,
+                                                              num_aug_magn=num_aug_magn,
+                                                              controller_hid=controller_hid,
+                                                              softmax_temperature=softmax_temperature,
+                                                              num_mix=num_mix,
+                                                              input_aware=input_aware,
+                                                              entropy_regularize=entropy_regularize,
+                                                              entropy_coeff=entropy_coeff,
+                                                              mention_dict_path=mention_dict_path,
+                                                              load_w2v=consistency_loss)
+        else:
+            raise NotImplementedError
 
+        if consistency_loss is True:
             self.lambda_consist = lambda_consist
             self.lambda_detection_consist = lambda_detection_consist
 
@@ -341,7 +342,8 @@ class MyCoreferenceResolver(Model):
         new_text, new_spans, controller_train_dict = self.mention_switcher.get_switch_mention_text_and_spans(result_output_dict, spans)
 
         if self.baseline == 'greedy':
-            new_text_baseline, new_spans_baseline, baseline_train_dict = self.mention_switcher.get_switch_mention_text_and_spans(result_output_dict, spans, greedy=True)
+            with torch.no_grad():
+                new_text_baseline, new_spans_baseline, baseline_train_dict = self.mention_switcher.get_switch_mention_text_and_spans(result_output_dict, spans, greedy=True)
 
         # Second forward
         new_coref_log_probs, new_total_scores = self._get_coreference_logprobs(new_text, new_spans, num_spans_to_keep, top_span_indices)
@@ -366,18 +368,19 @@ class MyCoreferenceResolver(Model):
 
         #Cacl baseline reward
         if self.baseline != 'none':
-            baseline_coref_log_probs, baseline_total_scores = self._get_coreference_logprobs(new_text_baseline, new_spans_baseline, num_spans_to_keep, top_span_indices)
-            baseline_consis_loss = F.kl_div(coreference_log_probs, torch.exp(baseline_coref_log_probs))
-            baseline_reward = baseline_consis_loss
-            if self.detection_consistency_loss:
-                baseline_detect_loss = mse_loss(total_scores, baseline_total_scores)
-                baseline_reward += baseline_detect_loss
+            with torch.no_grad():
+                baseline_coref_log_probs, baseline_total_scores = self._get_coreference_logprobs(new_text_baseline, new_spans_baseline, num_spans_to_keep, top_span_indices)
+                baseline_consis_loss = F.kl_div(coreference_log_probs, torch.exp(baseline_coref_log_probs))
+                baseline_reward = baseline_consis_loss.detach()
+                if self.detection_consistency_loss:
+                    baseline_detect_loss = mse_loss(total_scores, baseline_total_scores)
+                    baseline_reward += baseline_detect_loss.detach()
 
 
         #Finish training of the controller
-        reward = output_dict["consis_loss"]
+        reward = output_dict["consis_loss"].detach()
         if "detection_consis_loss" in output_dict.keys():
-            reward += output_dict["detection_consis_loss"]
+            reward += output_dict["detection_consis_loss"].detach()
         if self.baseline!= 'none':
             output_dict["controller_optim_loss"] = self.mention_switcher.train_controller(reward, controller_train_dict, baseline_reward, baseline_train_dict)
         else:

@@ -213,7 +213,10 @@ class MyConllCorefReader(DatasetReader):
                     canonical_clusters = canonicalize_clusters(clusters)
                     #_ =  self.text_to_instance([s.words for s in sentences], canonical_clusters)
                     sen_id = str(sentences[0].document_id) + ':' + str(sentences[0].sentence_id)
-                    instance = self.text_to_instance([s.words for s in sentences], canonical_clusters, sen_id)
+                    if 'ssl' in file_path:
+                        instance = self.text_to_instance([s.words for s in sentences], canonical_clusters, sen_id, use_gold_clusters=False)
+                    else:
+                        instance = self.text_to_instance([s.words for s in sentences], canonical_clusters, sen_id)
                     instances_list.append(instance)
                     i += 1
                     yield instance
@@ -289,7 +292,8 @@ class MyConllCorefReader(DatasetReader):
     def text_to_instance(self,  # type: ignore
                          sentences: List[List[str]],
                          gold_clusters: Optional[List[List[Tuple[int, int]]]] = None,
-                         sen_id: str = None) -> Instance:
+                         sen_id: str = None,
+                         use_gold_clusters=True) -> Instance:
         # pylint: disable=arguments-differ
         """
         Parameters
@@ -330,8 +334,11 @@ class MyConllCorefReader(DatasetReader):
 
         tokens = [Token(word) for word in flattened_sentences]
 
-        if gold_clusters is not None:
+        if gold_clusters is not None and use_gold_clusters:
             metadata["clusters"] = gold_clusters
+
+        if gold_clusters is not None and not use_gold_clusters:
+            cluster_for_cheat = gold_clusters
 
         if self.bert_tokenizer is not None:
             wordpieces, offsets, start_idx_maps, end_idx_maps = self._wordpiece_tokenize_input([t.text for t in tokens])
@@ -347,13 +354,13 @@ class MyConllCorefReader(DatasetReader):
             text_field = TextField([Token(word) for word in flattened_sentences], self._token_indexers)
 
         cluster_dict = {}
-        if gold_clusters is not None:
+        if gold_clusters is not None and use_gold_clusters:
             for cluster_id, cluster in enumerate(gold_clusters):
                 for mention in cluster:
                     cluster_dict[tuple(mention)] = cluster_id
 
         spans: List[Field] = []
-        span_labels: Optional[List[int]] = [] if gold_clusters is not None else None
+        span_labels: Optional[List[int]] = [] if (gold_clusters is not None and use_gold_clusters) else None
 
         sentence_offset = 0
         for sentence in sentences:
@@ -389,6 +396,7 @@ class MyConllCorefReader(DatasetReader):
                 for cluster in gold_clusters:
                     newclusters.append(set([(start_idx_maps[start], end_idx_maps[end]) for (start, end) in cluster]))
                 newmetadata['clusters'] = newclusters
+
             newmetadata["tokenized_text"] = wordpieces
             #copy other things from metadata
             for k in metadata.keys():

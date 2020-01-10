@@ -7,4 +7,4 @@ export COREF_TRAIN_DATA_PATH=/playpen/home/xzh/datasets/coref/allen/debug.englis
 export COREF_DEV_DATA_PATH=/playpen/home/xzh/datasets/coref/allen/debug.english.v4_gold_conll
 export COREF_TEST_DATA_PATH=/playpen/home/xzh/datasets/coref/allen/debug.english.v4_gold_conll
 
-allennlp train scripts/lasy/lasy_debug.jsonnet -s outputs/lasy_debug_1102_1 --include-package allen_packages
+allennlp train scripts/lasy/lasy_debug.jsonnet -s outputs/lasy_debug_1106_3 --include-package allen_packages

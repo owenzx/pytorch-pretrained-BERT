@@ -16,7 +16,10 @@
     "bert_model": "bert-base-uncased",
     "semi_supervise": true,
     "mention_dict_path": "./cache/debug_conll_train.corpus",
-    "lambda_consist": 10000.0,
+    "basic_switch_type": "glove_mention",
+    "mask_mention": false,
+    "lambda_consist": 10.0,
+    "consistency_threshold": 99999,
     "consistency_loss": true,
     "mention_feedforward": {
         "input_dim": 2324,
@@ -36,7 +39,10 @@
     "feature_size": 20,
     "max_span_width": 25,
     "spans_per_word": 0.4,
-    "max_antecedents": 150
+    "max_antecedents": 150,
+    "initializer":[
+      ["^.*$", {"type": "pretrained", "weights_file_path": "./outputs/mentionswitch_really_baseline_train10_1108_3/best.th", "parameter_name_overrides": {}}]
+    ]
   },
   "iterator": {
     "type": "bucket",
@@ -46,13 +52,16 @@
   },
   "trainer": {
     "type": "ssl-trainer",
+    "gradient_accumulation_steps": 10,
+    "gradient_accumulation_normalization": true,
     "num_epochs": 20,
     "cuda_device" : 0,
+    "step_unlabel": 9,
     "validation_metric": "+coref_f1",
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":3832
+      "num_steps_per_epoch":491
     },
     "optimizer": {
       "type": "bert_adam",
