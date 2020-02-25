@@ -8,7 +8,7 @@ from conll import util
 from conll import mention
 
 from pprint import pprint
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 def write_lines_back_to_file(doc_lines, path):
     with open(path, 'w') as fw:
@@ -521,11 +521,116 @@ def get_max_span_file(input_file):
 
 
 
+
+def find_root(p, mapper):
+    if p not in mapper:
+        return p
+    while(mapper[p]!=p):
+        p = mapper[p]
+    return p
+
+
+
 def get_upper_bound(input_file):
-    pass
+    """This function is used for predicting the upper bound for head-coref. It's used for evaluating the quality of head-finding/extraction. The metric is optimistic based sorely on the uniqueness of heads."""
+
+
+
+    with open(input_file, 'r') as fr:
+        gt_lines = fr.readlines()
+
+
+    passage_lines = []
+    ub_lines = []
+    for line in tqdm(gt_lines):
+        columns = line.strip().split()
+        if len(columns)==0:
+            passage_lines.append(line)
+            continue
+        elif columns[0] == '#begin':
+            id_mapper = {}
+            passage_lines.append(line)
+            continue
+        elif columns[0] == '#end':
+            passage_lines.append(line)
+            #compressing path in id_mapper
+            for k in id_mapper.keys():
+                p = id_mapper[k]
+                if p==k or id_mapper[p] == p:
+                    continue
+
+                path = [k]
+                while p!=id_mapper[p]:
+                    path.append(p)
+                    p = id_mapper[p]
+                for u in path:
+                    id_mapper[u] = p
+
+            # start copying lines to ub_lines
+            for p_line in passage_lines:
+                columns = p_line.strip().split()
+                if len(columns) == 0 or columns[0] == '#begin' or columns[0]=='#end':
+                    ub_lines.append(p_line)
+                    continue
+                cluster_ids = columns[-1]
+                if cluster_ids == '-':
+                    ub_lines.append(p_line)
+                    continue
+                else:
+                    id_list = cluster_ids.split('|')
+                    for i in range(len(id_list)):
+                        id_list[i] = int(id_list[i][1:-1])
+                    uni_id = id_mapper[id_list[0]]
+                    for id in id_list:
+                        try:
+                            assert(id_mapper[id] == uni_id)
+                        except:
+                            print(id)
+                            print(uni_id)
+                            print(id_mapper)
+                            exit()
+                    columns[-1] = '(%d)'%uni_id
+                    new_line = '   '.join(columns)+ '\n'
+                    ub_lines.append(new_line)
+                    continue
+            passage_lines = []
+            continue
+        else:
+            cluster_ids = columns[-1]
+            if cluster_ids == '-':
+                passage_lines.append(line)
+                continue
+            else:
+                id_list = cluster_ids.split('|')
+                #remove brackets and convert to int
+                for i in range(len(id_list)):
+                    id_list[i] = int(id_list[i][1:-1])
+                #map id
+                uni_id = find_root(id_list[0], id_mapper)
+                for i in range(len(id_list)):
+                    #TODO find root, link the root instead of the leaf
+                    p = find_root(id_list[i], id_mapper)
+                    id_mapper[p] = uni_id
+                passage_lines.append(line)
+
+                continue
+
+
+
+
+
+    ub_file = input_file + '.ub'
+    with open(ub_file, 'w') as fw:
+        for line in ub_lines:
+            fw.write(line)
+
+
+    print("Please run outer scripts to evaluate the conll metrics for input_file and the generated file.")
+
 
 
 if __name__ == '__main__':
     #map_pred_to_conll_file(pred_file='./outputs/allen_test/pred_on_dev.out', conll_file='./dev.min_span')
     #get_min_span_file(file_path='./pred_on_dev.conll_span')
-    get_max_span_file('train.min_span')
+    #get_max_span_file('train.min_span')
+    get_upper_bound('train.min_span')
