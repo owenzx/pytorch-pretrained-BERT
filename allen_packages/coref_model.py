@@ -6,7 +6,8 @@ import torch
 import torch.nn.functional as F
 from overrides import overrides
 
-from pytorch_pretrained_bert.modeling import  BertModel
+#from pytorch_pretrained_bert.modeling import  BertModel
+from transformers import BertModel, DistilBertModel
 
 from allennlp.data import Vocabulary
 from allennlp.models.model import Model
@@ -71,7 +72,7 @@ class MyCoreferenceResolver(Model):
     """
     def __init__(self,
                  vocab: Vocabulary,
-                 bert_model: Union[str, BertModel],
+                 bert_model: Union[str, BertModel, DistilBertModel],
                  mention_feedforward: FeedForward,
                  antecedent_feedforward: FeedForward,
                  feature_size: int,
@@ -96,7 +97,12 @@ class MyCoreferenceResolver(Model):
         super(MyCoreferenceResolver, self).__init__(vocab, regularizer)
 
         if isinstance(bert_model, str):
-            self.bert_model = BertModel.from_pretrained(bert_model)
+            if 'distil' in bert_model:
+                self.is_distil = True
+                self.bert_model = DistilBertModel.from_pretrained(bert_model)
+            else:
+                self.is_distil = False
+                self.bert_model = BertModel.from_pretrained(bert_model)
         else:
             self.bert_model = bert_model
         #self._context_layer = context_layer
@@ -205,7 +211,12 @@ class MyCoreferenceResolver(Model):
         #First forward
         mask = get_text_field_mask(text)
         # Shape: (batch_size, document_length, embedding_size)
-        bert_embeddings, _ = self.bert_model(input_ids=text['tokens'], attention_mask=mask, output_all_encoded_layers=False)
+        #bert_embeddings, _ = self.bert_model(input_ids=text['tokens'], attention_mask=mask, output_all_encoded_layers=False)
+        if self.is_distil:
+            bert_embeddings = self.bert_model(input_ids=text['tokens'], attention_mask=mask)
+            bert_embeddings = bert_embeddings[0]
+        else:
+            bert_embeddings, _ = self.bert_model(input_ids=text['tokens'], attention_mask=mask)
         text_embeddings = self._lexical_dropout(bert_embeddings)
         if self._bert_feedforward is not None:
             text_embeddings = self._bert_feedforward(text_embeddings)
@@ -372,7 +383,11 @@ class MyCoreferenceResolver(Model):
 
         mask = get_text_field_mask(text)
         # Shape: (batch_size, document_length, embedding_size)
-        bert_embeddings, _ = self.bert_model(input_ids=text['tokens'], attention_mask=mask, output_all_encoded_layers=False)
+        if self.is_distil:
+            bert_embeddings = self.bert_model(input_ids=text['tokens'], attention_mask=mask)
+            bert_embeddings = bert_embeddings[0]
+        else:
+            bert_embeddings, _ = self.bert_model(input_ids=text['tokens'], attention_mask=mask)
         #bert_embeddings = bert_embeddings.detach()
         text_embeddings = self._lexical_dropout(bert_embeddings)
         if self._bert_feedforward is not None:
@@ -522,7 +537,12 @@ class MyCoreferenceResolver(Model):
         mask = get_text_field_mask(text)
 
         # Shape: (batch_size, document_length, embedding_size)
-        bert_embeddings, _ = self.bert_model(input_ids=text['tokens'], attention_mask=mask, output_all_encoded_layers=False)
+        #bert_embeddings, _ = self.bert_model(input_ids=text['tokens'], attention_mask=mask, output_all_encoded_layers=False)
+        if self.is_distil:
+            bert_embeddings = self.bert_model(input_ids=text['tokens'], attention_mask=mask)
+            bert_embeddings = bert_embeddings[0]
+        else:
+            bert_embeddings, _ = self.bert_model(input_ids=text['tokens'], attention_mask=mask)
         #bert_embeddings = bert_embeddings.detach()
         text_embeddings = self._lexical_dropout(bert_embeddings)
         if self._bert_feedforward is not None:

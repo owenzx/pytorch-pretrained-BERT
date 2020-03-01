@@ -3,7 +3,8 @@ import collections
 from typing import Any, Dict, List, Optional, Tuple, DefaultDict, Set
 
 from overrides import overrides
-from pytorch_pretrained_bert import BertTokenizer
+#from pytorch_pretrained_bert import BertTokenizer
+from transformers import BertTokenizer, DistilBertTokenizer
 
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
@@ -95,7 +96,12 @@ class MyConllCorefReader(DatasetReader):
         self._max_span_width = max_span_width
         self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
         if bert_model_name is not None:
-            self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+            if "distil" in bert_model_name:
+                self.is_distil = True
+                self.bert_tokenizer = DistilBertTokenizer.from_pretrained(bert_model_name)
+            else:
+                self.is_distil = False
+                self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
             if lowercase_input is None:
                 self.lowercase_input = "uncased" in bert_model_name
             else:

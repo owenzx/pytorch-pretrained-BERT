@@ -69,13 +69,22 @@ class CoreferenceResolver(Model):
     def __init__(
         self,
         vocab: Vocabulary,
+        context_layer: Seq2SeqEncoder,
         bert_model: Union[str, BertModelwAttention],
         bert_feedforward: Optional[FeedForward] = None,
+        token_mask_feedforward: Optional[FeedForward] = None,
         lexical_dropout: float = 0.2,
         initializer: InitializerApplicator = InitializerApplicator(),
         regularizer: Optional[RegularizerApplicator] = None,
     ) -> None:
         super().__init__(vocab, regularizer)
+
+        self._context_layer = context_layer
+
+        if token_mask_feedforward is not None:
+            self._token_mask_ff = TimeDistributed(token_mask_feedforward)
+        else:
+            self._token_mask_ff = None
 
         self.bert_model = BertModelwAttention.from_pretrained(bert_model)
         if bert_feedforward is not None:
@@ -84,7 +93,7 @@ class CoreferenceResolver(Model):
         else:
             self._bert_feedforward = None
             #TODO dim as argument
-            self._final_link_attention = BilinearMatrixAttention(768, 768)
+            self._final_link_attention = BilinearMatrixAttention(self._context_layer.get_output_dim(), self._context_layer.get_output_dim())
 
 
         # 10 possible distance buckets.
@@ -148,15 +157,17 @@ class CoreferenceResolver(Model):
         """
         # Shape: (batch_size, document_length, embedding_size)
         mask = util.get_text_field_mask(text)
+        text_mask = util.get_text_field_mask(text).float()
 
         # Shape: (batch_size, document_length, embedding_size)
         bert_embeddings, _, all_attentions = self.bert_model(input_ids=text['tokens'], attention_mask=mask, output_all_encoded_layers=True)
         bert_embeddings = bert_embeddings[-1]
         all_attentions = torch.cat(all_attentions, 1)
         text_embeddings = self._lexical_dropout(bert_embeddings)
-        print(text_embeddings.shape)
         if self._bert_feedforward is not None:
             text_embeddings = self._bert_feedforward(text_embeddings)
+
+        text_embeddings = self._context_layer(text_embeddings, text_mask)
 
 
         #text_embeddings = self._lexical_dropout(self._text_field_embedder(text))
@@ -200,6 +211,11 @@ class CoreferenceResolver(Model):
         weighted_all_attention = torch.sum(weighted_all_attention, 1)
 
         head_link_matrix = head_link_matrix + weighted_all_attention
+
+        if self._token_mask_ff is not None:
+            token_mask = self._token_mask_ff(text_embeddings)
+            token_mask_attention = torch.matmul(token_mask, token_mask.transpose(1, 2))
+            head_link_matrix = head_link_matrix * token_mask_attention
 
         dummy_score = head_link_matrix.new_ones(batch_size, document_length, 1)
         head_link_matrix = torch.cat([dummy_score, head_link_matrix], dim=-1)
