@@ -1,26 +1,31 @@
 // Configuration for a coreference resolution model based on:
 //   Lee, Kenton et al. “End-to-end Neural Coreference Resolution.” EMNLP (2017).
+local bert_model = "bert-base-uncased";
+local max_length = 128;
 {
   "dataset_reader": {
-    "type": "my_coref",
-    "bert_model_name": "bert-base-uncased",
-    "max_pieces": 512,
+    "type": "new_coref",
+    "token_indexers":{
+      "tokens":{
+        "type": "pretrained_transformer_mismatched",
+        "model_name": bert_model,
+        "max_length": max_length
+      },
+    },
     "max_span_width": 25
   },
   "train_data_path": std.extVar("COREF_TRAIN_DATA_PATH"),
-  "unl_data_path": std.extVar("COREF_UNL_DATA_PATH"),
   "validation_data_path": std.extVar("COREF_DEV_DATA_PATH"),
   "test_data_path": std.extVar("COREF_TEST_DATA_PATH"),
   "model": {
-    "type": "my_coref",
-    "bert_model": "bert-base-uncased",
-    "semi_supervise": true,
-    "mention_dict_path": "./cache/debug_conll_train.corpus",
-    "mask_mention": true,
-    "mask_prob": 0.1,
-    "lambda_consist": 10000.0,
-    "consistency_threshold": 1e-3,
-    "consistency_loss": true,
+    "type": "new_coref_span",
+    "text_field_embedder":{
+      "tokens":{
+        "type": "pretrained_transformer_mismatched",
+        "model_name": bert_model,
+        "max_length": max_length
+      }
+    },
     "mention_feedforward": {
         "input_dim": 2324,
         "num_layers": 2,
@@ -39,26 +44,23 @@
     "feature_size": 20,
     "max_span_width": 25,
     "spans_per_word": 0.4,
+    "coarse_to_fine": true,
     "max_antecedents": 150
   },
   "iterator": {
     "type": "bucket",
-    "sorting_keys": [["text", "num_tokens"]],
+    "sorting_keys": ["text"],
     "padding_noise": 0.0,
     "batch_size": 1
   },
   "trainer": {
-    "type": "ssl-trainer",
-    "gradient_accumulation_steps": 2,
-    "gradient_accumulation_normalization": true,
     "num_epochs": 20,
     "cuda_device" : 0,
-    "step_unlabel": 1,
     "validation_metric": "+coref_f1",
     "learning_rate_scheduler": {
       "type": "slanted_triangular",
       "num_epochs": 20,
-      "num_steps_per_epoch":491
+      "num_steps_per_epoch":4735
     },
     "optimizer": {
       "type": "bert_adam",

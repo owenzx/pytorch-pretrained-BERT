@@ -1,0 +1,109 @@
+// Configuration for a coreference resolution model based on:
+//   Lee, Kenton et al. “End-to-end Neural Coreference Resolution.” EMNLP (2017).
+//   + BERT
+
+local bert_model = "bert-base-cased";
+local max_length = 128;
+local feature_size = 20;
+local max_span_width = 30;
+
+local bert_dim = 768;  # uniquely determined by bert_model
+local span_embedding_dim = 3 * bert_dim + feature_size;
+local span_pair_embedding_dim = 3 * span_embedding_dim + feature_size;
+
+{
+  "dataset_reader": {
+    "type": "coref",
+    "token_indexers": {
+      "tokens": {
+        "type": "pretrained_transformer_mismatched",
+        "model_name": bert_model,
+        "max_length": max_length
+      },
+    },
+    "max_span_width": max_span_width,
+    "max_sentences": std.parseInt(std.extVar("COREF_MAX_SEN"))
+  },
+  "validation_dataset_reader": {
+    "type": "coref",
+    "token_indexers": {
+      "tokens": {
+        "type": "pretrained_transformer_mismatched",
+        "model_name": bert_model,
+        "max_length": max_length
+      },
+    },
+    "max_span_width": max_span_width,
+  },
+
+  "train_data_path": std.extVar("COREF_TRAIN_DATA_PATH"),
+  "validation_data_path": std.extVar("COREF_DEV_DATA_PATH"),
+  "test_data_path": std.extVar("COREF_TEST_DATA_PATH"),
+  "model": {
+    "type": "coref",
+    "text_field_embedder": {
+      "token_embedders": {
+        "tokens": {
+            "type": "pretrained_transformer_mismatched",
+            "model_name": bert_model,
+            "max_length": max_length
+        }
+      }
+    },
+    "context_layer": {
+        "type": "pass_through",
+        "input_dim": bert_dim,
+    },
+    "mention_feedforward": {
+        "input_dim": span_embedding_dim,
+        "num_layers": 2,
+        "hidden_dims": 3000,
+        "activations": "relu",
+        "dropout": 0.3
+    },
+    "antecedent_feedforward": {
+        "input_dim": span_pair_embedding_dim,
+        "num_layers": 2,
+        "hidden_dims": 3000,
+        "activations": "relu",
+        "dropout": 0.3
+    },
+    "initializer": {"regexes":[
+        [".*linear_layers.*weight", {"type": "xavier_normal"}],
+        [".*scorer._module.weight", {"type": "xavier_normal"}],
+        ["_distance_embedding.weight", {"type": "xavier_normal"}],
+        ["_span_width_embedding.weight", {"type": "xavier_normal"}],
+        ["_context_layer._module.weight_ih.*", {"type": "xavier_normal"}],
+        ["_context_layer._module.weight_hh.*", {"type": "orthogonal"}]
+    ]},
+    "feature_size": feature_size,
+    "max_span_width": max_span_width,
+    "spans_per_word": 0.4,
+    "max_antecedents": 50,
+    "coarse_to_fine": true,
+  },
+  "data_loader": {
+    "batch_sampler": {
+      "type": "bucket",
+      "sorting_keys": ["text"],
+      "batch_size": 1
+    }
+  },
+  "trainer": {
+    "num_epochs": 20,
+    "patience" : 10,
+    "cuda_device" : 0,
+    "validation_metric": "+coref_f1",
+    "learning_rate_scheduler": {
+      "type": "slanted_triangular",
+      "cut_frac": 0.06
+    },
+    "optimizer": {
+      "type": "huggingface_adamw",
+      "lr": 2e-4,
+      "parameter_groups": [
+        [[".*transformer.*"], {"lr": 1e-5}]
+      ]
+    }
+  }
+}
