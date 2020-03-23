@@ -34,6 +34,13 @@ class AttentionPretrainedTransformerMismatchedEmbedder(TokenEmbedder):
         return self._matched_embedder.get_output_dim()
 
 
+    def _get_match_attention_by_mean_pooling(self, attentions, offsets, unfold_map):
+        print(attentions.shape)
+        print(offsets.shape)
+        print(unfold_map.shape)
+        exit()
+
+
     def _get_span_by_mean_pooling(self, emb, offsets):
         span_embeddings, span_mask = util.batched_span_select(emb.contiguous(), offsets)
         span_mask = span_mask.unsqueeze(-1)
@@ -76,7 +83,7 @@ class AttentionPretrainedTransformerMismatchedEmbedder(TokenEmbedder):
         Shape: [batch_size, num_orig_tokens, embedding_size].
         """
         # Shape: [batch_size, num_wordpieces, embedding_size].
-        embeddings, attentions = self._matched_embedder(
+        embeddings, attentions, unfold_map = self._matched_embedder(
             token_ids, wordpiece_mask, type_ids=type_ids, segment_concat_mask=segment_concat_mask
         )
 
@@ -93,7 +100,10 @@ class AttentionPretrainedTransformerMismatchedEmbedder(TokenEmbedder):
         # # Shape: (batch_size, num_orig_tokens, embedding_size)
         # orig_embeddings = span_embeddings_sum / span_embeddings_len
 
+        orig_block_attentions = self._get_match_attention_by_mean_pooling(attentions, offsets, unfold_map)
 
+
+        # The following code block compresses self_attention
         # attentions: (batch_size, #attetnion, num_wordpieces1, num_wordpieces2)
         attentions = attentions.contiguous()
         batch_size = attentions.shape[0]
@@ -112,6 +122,5 @@ class AttentionPretrainedTransformerMismatchedEmbedder(TokenEmbedder):
         orig_attentions = orig_attentions.view(batch_size, num_word, num_word, num_attention).transpose(1, 3)
         # Shape[batch, # attention, #word1, #word2]
 
-
-        
-        return orig_embeddings, orig_attentions
+        #return orig_embeddings, orig_attentions
+        return orig_embeddings, orig_block_attentions

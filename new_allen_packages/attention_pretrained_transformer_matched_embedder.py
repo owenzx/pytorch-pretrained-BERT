@@ -99,13 +99,16 @@ class AttentionPretrainedTransformerEmbedder(TokenEmbedder):
                 if max_type_id >= self._number_of_token_type_embeddings():
                     raise ValueError("Found type ids too large for the chosen transformer model.")
                 assert token_ids.shape == type_ids.shape
-
+        print("SHAPE BEFORE FOLD")
+        print(token_ids.shape)
         fold_long_sequences = self._max_length is not None and token_ids.size(1) > self._max_length
         if fold_long_sequences:
             batch_size, num_segment_concat_wordpieces = token_ids.size()
-            token_ids, segment_concat_mask, type_ids = self._fold_long_sequences(
+            token_ids, segment_concat_mask, type_ids, fold_unfold_map = self._fold_long_sequences(
                 token_ids, segment_concat_mask, type_ids
             )
+        print("SHAPE AFTER FOLD")
+        print(token_ids.shape)
 
         transformer_mask = segment_concat_mask if self._max_length is not None else mask
         # Shape: [batch_size, num_wordpieces, embedding_size],
@@ -123,17 +126,24 @@ class AttentionPretrainedTransformerEmbedder(TokenEmbedder):
         #embeddings = self.transformer_model(**parameters)[0]
         embeddings, _, attentions = self.transformer_model(**parameters)
         attentions = torch.cat(attentions, 1)
+        print("SHAPE AFTER TRANSFORMER")
+        print(embeddings.shape)
 
         if fold_long_sequences:
             embeddings = self._unfold_long_sequences(
                 embeddings, segment_concat_mask, batch_size, num_segment_concat_wordpieces
             )
-            attentions = self._unfold_long_attentions(
-                attentions, segment_concat_mask, batch_size, num_segment_concat_wordpieces
+
+            unfold_map = self._unfold_long_sequences(
+                fold_unfold_map, segment_concat_mask, batch_size, num_segment_concat_wordpieces
             )
 
+            # attentions = self._unfold_long_attentions(
+            #     attentions, segment_concat_mask, batch_size, num_segment_concat_wordpieces
+            # )
 
-        return embeddings, attentions
+
+        return embeddings, attentions, unfold_map
 
     def _fold_long_sequences(
         self,
@@ -163,6 +173,9 @@ class AttentionPretrainedTransformerEmbedder(TokenEmbedder):
             Shape: [batch_size * num_segments, self._max_length].
         mask: `torch.BoolTensor`
             Shape: [batch_size * num_segments, self._max_length].
+        unfold_map: `torch.LongTensor'
+            Shape: [batch_size, num_segment_concat_wordpieces, 2]
+            First value is the index OF the segment, second is the index in the segment
         """
         num_segment_concat_wordpieces = token_ids.size(1)
         num_segments = math.ceil(num_segment_concat_wordpieces / self._max_length)
@@ -175,7 +188,24 @@ class AttentionPretrainedTransformerEmbedder(TokenEmbedder):
             # Shape: [batch_size * num_segments, self._max_length]
             return tensor.reshape(-1, self._max_length)
 
-        return fold(token_ids), fold(mask), fold(type_ids) if type_ids is not None else None
+        def fold_3d(tensor):
+            dim = tensor.shape[-1]
+            tensor = F.pad(tensor, [0,0, 0, length_to_pad], value=0)
+            return tensor.reshape(-1, self._max_length, dim)
+
+        dev = token_ids.device
+        batch_size = token_ids.size(0)
+        inseg_indices = torch.arange(self._max_length, device=dev).view(1, -1, 1)
+        inseg_indices = inseg_indices.repeat(batch_size, num_segments, 1)
+        seg_indices = torch.arange(num_segments, device=dev).view(1, -1, 1)
+        seg_indices = seg_indices.repeat_interleave(self._max_length, dim=1).repeat(batch_size, 1, 1)
+        inseg_indices = inseg_indices[:, :num_segment_concat_wordpieces, :]
+        seg_indices = seg_indices[:, :num_segment_concat_wordpieces, :]
+        unfold_map = torch.cat([seg_indices, inseg_indices], -1)
+        print(token_ids.shape)
+        print(unfold_map.shape)
+
+        return fold(token_ids), fold(mask), fold(type_ids) if type_ids is not None else None, fold_3d(unfold_map)
 
     def _unfold_long_sequences(
         self,
@@ -225,6 +255,8 @@ class AttentionPretrainedTransformerEmbedder(TokenEmbedder):
         # Open an issue on GitHub if this breaks for you.
         # Shape: (batch_size,)
         seq_lengths = mask.sum(-1)
+        print(seq_lengths)
+        # exit()
         if not (lengths_to_mask(seq_lengths, mask.size(1), device) == mask).all():
             raise ValueError(
                 "Long sequence splitting only supports masks with all 1s preceding all 0s."

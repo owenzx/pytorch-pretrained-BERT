@@ -14,10 +14,13 @@ local span_pair_embedding_dim = 3 * span_embedding_dim + feature_size;
 
 {
   "dataset_reader": {
-    "type": "coref_head_joint_bert",
+    "type": "coref_head_joint_bert_subword",
+    "wordpiece_modeling_tokenizer":{
+      "model_name": bert_model,
+    },
     "token_indexers": {
       "tokens": {
-        "type": "pretrained_transformer_mismatched",
+        "type": "pretrained_transformer",
         "model_name": bert_model,
         "max_length": max_length
       },
@@ -26,10 +29,13 @@ local span_pair_embedding_dim = 3 * span_embedding_dim + feature_size;
     "truncation": false,
   },
   "validation_dataset_reader": {
-    "type": "coref_head_joint_bert",
+    "type": "coref_head_joint_bert_subword",
+    "wordpiece_modeling_tokenizer":{
+      "model_name": bert_model,
+    },
     "token_indexers": {
       "tokens": {
-        "type": "pretrained_transformer_mismatched",
+        "type": "pretrained_transformer",
         "model_name": bert_model,
         "max_length": max_length
       },
@@ -44,7 +50,7 @@ local span_pair_embedding_dim = 3 * span_embedding_dim + feature_size;
       "type": "many",
       "token_embedders": {
         "tokens": {
-            "type": "attention_pretrained_transformer_mismatched",
+            "type": "attention_pretrained_transformer",
             "model_name": bert_model,
             "max_length": max_length
         }
