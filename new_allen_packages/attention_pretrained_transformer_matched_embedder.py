@@ -101,7 +101,9 @@ class AttentionPretrainedTransformerEmbedder(TokenEmbedder):
                 assert token_ids.shape == type_ids.shape
         print("SHAPE BEFORE FOLD")
         print(token_ids.shape)
-        fold_long_sequences = self._max_length is not None and token_ids.size(1) > self._max_length
+        #TODO save more memory
+        #fold_long_sequences = self._max_length is not None and token_ids.size(1) > self._max_length
+        fold_long_sequences = True
         if fold_long_sequences:
             batch_size, num_segment_concat_wordpieces = token_ids.size()
             token_ids, segment_concat_mask, type_ids, fold_unfold_map = self._fold_long_sequences(

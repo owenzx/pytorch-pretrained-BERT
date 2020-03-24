@@ -308,7 +308,8 @@ class CoreferenceResolver(Model):
         print(top_head_embeddings.shape)
         print(top_head_fold_maps.shape)
 
-        column_mask = torch.zeros_like(all_attentions, dtype=torch.bool)
+        column_mask = torch.zeros((1, all_attentions.shape[1], all_attentions.shape[2], all_attentions.shape[3], all_attentions.shape[4]), dtype=torch.bool, device = all_attentions.device)
+        #column_mask = torch.zeros_like(all_attentions, dtype=torch.bool)
         column_mask = two_dim_fill(column_mask, 1, top_head_fold_maps)
 
         row_mask =column_mask.permute(0, 1, 2, 4, 3)
@@ -324,7 +325,8 @@ class CoreferenceResolver(Model):
 
         pruned_attention_matrix = torch.zeros_like(head_link_matrix).unsqueeze(0).repeat(all_attentions.size(0), 1, 1, 1)
 
-        pruned_attention_mask = torch.zeros_like(pruned_attention_matrix, dtype=torch.bool)
+        #pruned_attention_mask = torch.zeros_like(pruned_attention_matrix, dtype=torch.bool)
+        pruned_attention_mask = torch.zeros((1, pruned_attention_matrix.shape[1], pruned_attention_matrix.shape[2], pruned_attention_matrix.shape[3]), dtype=torch.bool, device=pruned_attention_matrix.device)
 
         pruned_attention_mask = get_total_attention_matrix(pruned_attention_mask, top_head_fold_maps, num_seg=num_seg)
 
