@@ -15,92 +15,11 @@ from allennlp.nn import util, InitializerApplicator, RegularizerApplicator
 from .conll_head_coref_scores import ConllHeadCorefScores, ConllHeadPruneCorefScores
 
 
-def two_dim_fill(tensor, value, indices):
-    assert(indices.shape[-1] == 2)
-    max_len = tensor.shape[-2]
-
-    flat_indices = indices[:, :, 0] * max_len + indices[:, :, 1]
-    flat_indices = flat_indices.view(1, flat_indices.shape[0], -1, 1)
-    flat_indices = flat_indices.repeat(tensor.shape[0], 1, 1, tensor.shape[-1])
-
-
-    flattened_tensor = tensor.view(tensor.shape[0], tensor.shape[1], -1, tensor.shape[-1])
-    # print(flattened_tensor.shape)
-    # print(flat_indices.shape)
-    flattened_tensor.scatter_(2, flat_indices, value)
-
-    flattened_tensor = flattened_tensor.view(*tensor.shape)
-    # print(flattened_tensor.shape)
-    return flattened_tensor
-
-
-
-
-def get_total_attention_matrix(total_mask, fold_maps, num_seg):
-    """Target is to add block mask to the total_mask"""
-    # total_mask has the shape of [#att, b, pruned_len, pruned_len]
-    # fold_maps has the shape of [b, pruned_len, 2]
-
-    device = total_mask.device
-    # print(total_mask.shape)
-    # print(fold_maps.shape)
-
-    # TODO add two dummy lines for batching
-    total_mask = torch.cat([total_mask, torch.zeros((total_mask.shape[0], total_mask.shape[1], total_mask.shape[2], 1), device=device, dtype=torch.bool)], -1)
-    total_mask = torch.cat([total_mask, torch.zeros((total_mask.shape[0], total_mask.shape[1], 1, total_mask.shape[3]), device=device, dtype=torch.bool)], -2)
-
-    #DEBUG CODE
-    total_size = 0
-    batch_size = fold_maps.shape[0]
-    for b in range(batch_size):
-        seg_dict = {}
-        for s in range(num_seg):
-            seg_dict[s] = 0
-        locs = fold_maps[b, :, :].view(-1, 2)
-        all_locs = {}
-        for loc in locs:
-            k = (loc[0].item(), loc[1].item())
-            seg_dict[k[0]] += 1
-            if k not in all_locs:
-                all_locs[k] = 1
-            else:
-                all_locs[k] += 1
-        for s in seg_dict.keys():
-            total_size += seg_dict[s]*seg_dict[s] *144
-    #     print([(k,all_locs[k]) for k in all_locs.keys() if all_locs[k] > 1])
-    #     print("MAX:%d"%(max(all_locs.values())))
-    # print(total_size)
-
-
-
-
-
-
-    count = torch.zeros(fold_maps.shape[0], device=device, dtype=torch.long)
-    for i in range(num_seg):
-        start_loc = count
-        end_loc = count + torch.sum(fold_maps[:,:, 0].eq(i), 1).flatten()
-        count = end_loc
-        block_idx = torch.zeros((1, total_mask.size(1), torch.max(end_loc-start_loc).item()), device=device, dtype=torch.long) - 1
-
-        # for batch_idx in range(block_idx.shape[1]):
-        #     block_idx[:, batch_idx, :end_loc[batch_idx]-start_loc[batch_idx]] = torch.arange(start_loc[batch_idx], end_loc[batch_idx])
-        # total_mask[:,:,block_idx.unsqueeze(3), block_idx.unsqueeze(2)] = 1
-
-        for batch_idx in range(block_idx.shape[1]):
-            total_mask[:, batch_idx, start_loc[batch_idx]: end_loc[batch_idx], start_loc[batch_idx]:end_loc[batch_idx]] = 1
-
-    total_mask = total_mask[:,:, :-1, :-1]
-    # print(total_mask.shape)
-    # print(torch.sum(total_mask.bool()))
-    return total_mask
-
-
 
 logger = logging.getLogger(__name__)
 
 
-@Model.register("coref_head_joint_bert_attention_cheap")
+@Model.register("coref_head_joint_bert_prune_2stage")
 class CoreferenceResolver(Model):
     """
     This ``Model`` implements the coreference resolution model described "End-to-end Neural
@@ -147,42 +66,31 @@ class CoreferenceResolver(Model):
         vocab: Vocabulary,
         text_field_embedder: TextFieldEmbedder,
         heads_per_word: float,
-        context_layer: Optional[Seq2SeqEncoder] = None,
         bert_feedforward: Optional[FeedForward] = None,
         token_mask_feedforward: Optional[FeedForward] = None,
+        head_loss_coeff: float = 1.0,
         lexical_dropout: float = 0.2,
         initializer: InitializerApplicator = InitializerApplicator(),
         regularizer: Optional[RegularizerApplicator] = None,
     ) -> None:
         super().__init__(vocab, regularizer)
 
-        self._context_layer = context_layer
-
-        self._heads_per_word = heads_per_word
-        assert(self._heads_per_word < 1.0)
-
-        assert(token_mask_feedforward is not None)
-
-        self._token_mask_ff = TimeDistributed(token_mask_feedforward)
-
         self._text_field_embedder = text_field_embedder
+        self._heads_per_word = heads_per_word
         if bert_feedforward is not None:
             self._bert_feedforward = TimeDistributed(bert_feedforward)
             self._final_link_attention = BilinearMatrixAttention(self._bert_feedforward.get_output_dim(), self._bert_feedforward.get_output_dim())
         else:
             self._bert_feedforward = None
-            if context_layer is not None:
-                self._final_link_attention = BilinearMatrixAttention(self._context_layer.get_output_dim(), self._context_layer.get_output_dim())
-            else:
-                self._final_link_attention = BilinearMatrixAttention(768, 768)
+            #TODO dim as argument
+            self._final_link_attention = BilinearMatrixAttention(768, 768)
 
 
-        #144 attentions in Bert-base
-        self.weighted_attention_logits = torch.nn.Parameter(torch.zeros(144))
-
-
+        self._token_mask_ff = TimeDistributed(token_mask_feedforward)
         # 10 possible distance buckets.
         self._num_distance_buckets = 10
+        self._head_loss_coeff = head_loss_coeff
+
 
 
         #TODO: should design some intermediate metric
@@ -239,33 +147,17 @@ class CoreferenceResolver(Model):
         """
         # Shape: (batch_size, document_length, embedding_size)
         mask = util.get_text_field_mask(text)
-        text_mask = util.get_text_field_mask(text).float()
 
         # Shape: (batch_size, document_length, embedding_size)
         #bert_embeddings, _ = self.bert_model(input_ids=text['tokens'], attention_mask=mask, output_all_encoded_layers=False)
-
-        bert_embeddings, all_attentions, unfold_map = self._text_field_embedder(text)
-        #Here assume all_attention has the shape of [batch * segment, #attention, max_seq_len, max_seq_len]
-        seq_length = bert_embeddings.shape[1]
-        batch_size = bert_embeddings.shape[0]
-        num_attentions = all_attentions.shape[1]
-        max_seg_len = all_attentions.shape[-1]
-        all_attentions = all_attentions.view(batch_size, -1, num_attentions, max_seg_len, max_seg_len)
-        num_seg = all_attentions.shape[1]
-        # print(all_attentions.shape)
-
-
-        all_attentions = all_attentions.permute(2, 0, 1, 3, 4)
-
-
-
-
+        bert_embeddings = self._text_field_embedder(text)
         text_embeddings = self._lexical_dropout(bert_embeddings)
         if self._bert_feedforward is not None:
             text_embeddings = self._bert_feedforward(text_embeddings)
 
-        if self._context_layer is not None:
-            text_embeddings = self._context_layer(text_embeddings, text_mask)
+
+        #text_embeddings = self._lexical_dropout(self._text_field_embedder(text))
+
 
         batch_size = text_embeddings.size(0)
         document_length = text_embeddings.size(1)
@@ -276,86 +168,42 @@ class CoreferenceResolver(Model):
 
         span_labels = span_labels + (-1*(1-text_mask.long()))
         #print(span_labels)
-
-        ## Shape: (batch_size, num_spans)
-        #span_mask = (spans[:, :, 0] >= 0).squeeze(-1).float()
-
-        # Start pruning heads
         assert(self._heads_per_word < 1)
         num_heads_to_keep = int(math.floor(self._heads_per_word * document_length))
 
-        # print("#PRUNED HEADS:")
-        # print(num_heads_to_keep)
-
         head_prune_scores = self._token_mask_ff(text_embeddings)
-
-
-        # TODO check how the mask behaves for additional tokens at the beggining/end
         head_mask = text_mask.bool()
         head_prune_scores = head_prune_scores.squeeze(-1)
-        # print("IN:")
-        # print(head_prune_scores.shape)
-        # print(head_mask.shape)
+
+
+        identification_label =(span_labels!=-1).float()
+        head_identification_loss = F.binary_cross_entropy(head_prune_scores, identification_label, weight=text_mask).sum()
+
+
         top_head_scores, top_head_mask, top_head_indices = util.masked_topk(
             head_prune_scores, head_mask, num_heads_to_keep
         )
-        # print("OUT:")
-        # print(top_head_scores.shape)
-        # print(top_head_mask.shape)
-        # print(top_head_indices.shape)
 
+
+        seq_length = bert_embeddings.shape[1]
         flat_top_head_indices = util.flatten_and_batch_shift_indices(top_head_indices, seq_length)
         top_head_embeddings = util.batched_index_select(text_embeddings.contiguous(), top_head_indices, flat_top_head_indices)
-        top_head_fold_maps = util.batched_index_select(unfold_map.contiguous(), top_head_indices, flat_top_head_indices)
         pruned_mask = util.batched_index_select(text_mask.unsqueeze(-1), top_head_indices, flat_top_head_indices).squeeze(-1)
-        top_head_scores_unsorted = util.batched_index_select(head_prune_scores.unsqueeze(-1), top_head_indices, flat_top_head_indices)
-        # print(top_head_embeddings.shape)
-        # print(top_head_fold_maps.shape)
-
-        column_mask = torch.zeros((1, all_attentions.shape[1], all_attentions.shape[2], all_attentions.shape[3], all_attentions.shape[4]), dtype=torch.bool, device = all_attentions.device)
-        #column_mask = torch.zeros_like(all_attentions, dtype=torch.bool)
-        column_mask = two_dim_fill(column_mask, 1, top_head_fold_maps)
-
-        row_mask =column_mask.permute(0, 1, 2, 4, 3)
-
-        attention_prune_mask = column_mask * row_mask
-
-        flat_pruned_attention = torch.masked_select(all_attentions, attention_prune_mask)
-
-        # print(flat_pruned_attention.shape)
 
 
+        # Shape: (batch_size, document_length, document_length + 1)
         head_link_matrix = self._final_link_attention(top_head_embeddings, top_head_embeddings)
-        head_link_matrix  = head_link_matrix + top_head_scores_unsorted + top_head_scores_unsorted.permute(0, 2, 1)
 
-        pruned_attention_matrix = torch.zeros_like(head_link_matrix).unsqueeze(0).repeat(all_attentions.size(0), 1, 1, 1)
 
-        #pruned_attention_mask = torch.zeros_like(pruned_attention_matrix, dtype=torch.bool)
-        pruned_attention_mask = torch.zeros((1, pruned_attention_matrix.shape[1], pruned_attention_matrix.shape[2], pruned_attention_matrix.shape[3]), dtype=torch.bool, device=pruned_attention_matrix.device)
+        # #add pruning scores for pruning supervision
+        # head_link_matrix  = head_link_matrix + top_head_scores_unsorted + top_head_scores_unsorted.permute(0, 2, 1)
 
-        pruned_attention_mask = get_total_attention_matrix(pruned_attention_mask, top_head_fold_maps, num_seg=num_seg)
-
-        # print(torch.sum(pruned_attention_mask.bool()))
-        #flat_pruned_attention = torch.ones(torch.sum(pruned_attention_mask.bool()), device=pruned_attention_mask.device)
-        pruned_attention_matrix.masked_scatter_(pruned_attention_mask, flat_pruned_attention)
-
-        pruned_attention_matrix = pruned_attention_matrix.permute(1,0,2,3)
-
-        weighted_attentions_w = F.softmax(self.weighted_attention_logits)
-        weighted_all_attention = weighted_attentions_w.view(1, -1, 1, 1) * pruned_attention_matrix
-        weighted_all_attention = torch.sum(weighted_all_attention, 1)
-
-        # TODO remove the comment after debugging
-        head_link_matrix = head_link_matrix + weighted_all_attention
-
-        if self._token_mask_ff is not None:
-            token_mask = self._token_mask_ff(top_head_embeddings)
-            token_mask_attention = torch.matmul(token_mask, token_mask.transpose(1, 2))
-            head_link_matrix = head_link_matrix * token_mask_attention
 
         pruned_length = head_link_matrix.shape[-1]
-        dummy_score = head_link_matrix.new_zeros(batch_size, pruned_length, 1)
+        dummy_score = head_link_matrix.new_ones(batch_size, pruned_length, 1)
         head_link_matrix = torch.cat([dummy_score, head_link_matrix], dim=-1)
+
+
 
         # Shape (doc_length, doc_length)
         unidirection_mask = self._get_unidirectional_mask(pruned_length, dev=text_mask.device)
@@ -373,7 +221,10 @@ class CoreferenceResolver(Model):
 
         # Shape: (batch_size, document_length)
         _, predicted_antecedents = head_link_distribution.max(-1)
+
+
         # predicted_antecedents -= 1
+
        # concat with dummy index
         top_head_indices_wdummy = torch.cat((top_head_indices.new_zeros((top_head_indices.shape[0], 1)), top_head_indices+1), -1)
 
@@ -388,7 +239,6 @@ class CoreferenceResolver(Model):
         # exit()
 
         original_antecedent_indices -= 1
-
 
 
 
@@ -414,10 +264,8 @@ class CoreferenceResolver(Model):
             # gold_antecedent_labels = self._compute_antecedent_gold_labels(
             #     pruned_gold_labels, antecedent_labels
             # )
-            # print(span_labels.shape)
-            pruned_span_labels = util.batched_index_select(span_labels.unsqueeze(-1), top_head_indices, flat_top_head_indices).squeeze(-1)
-            #top_head_embeddings = util.batched_index_select(text_embeddings.contiguous(), top_head_indices, flat_top_head_indices)
 
+            pruned_span_labels = util.batched_index_select(span_labels.unsqueeze(-1), top_head_indices, flat_top_head_indices).squeeze(-1)
             #Shape： (batch_size, seq_len, seq_len+1)
             gold_antecedent_labels= self._compute_antecedent_gold_labels(pruned_span_labels)
 
@@ -447,6 +295,9 @@ class CoreferenceResolver(Model):
 
 
 
+
+
+
             self._conll_coref_scores(
                 original_antecedent_indices, top_head_indices, metadata
             )
@@ -458,13 +309,14 @@ class CoreferenceResolver(Model):
             # except:
             #     torch.set_printoptions(profile="full")
             #     print(head_link_matrix)
+            #     print(text_mask)
             #     print(predicted_antecedents)
             #     print(head_link_distribution)
             #     torch.set_printoptions(profile="default")
             #     exit()
 
 
-            output_dict["loss"] = negative_marginal_log_likelihood
+            output_dict["loss"] = negative_marginal_log_likelihood + head_identification_loss * self._head_loss_coeff
             #output_dict["loss"] = min_loss
 
 

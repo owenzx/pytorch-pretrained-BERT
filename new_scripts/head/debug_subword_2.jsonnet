@@ -57,17 +57,10 @@ local span_pair_embedding_dim = 3 * span_embedding_dim + feature_size;
       }
     },
     "token_mask_feedforward": {
-      "input_dim": 400,
+      "input_dim": 768,
       "num_layers": 1,
       "hidden_dims": 1,
       "activations": "linear",
-    },
-    "context_layer": {
-        "type": "lstm",
-        "bidirectional": true,
-        "input_size": 768,
-        "hidden_size": 200,
-        "num_layers": 1
     },
 
     "initializer": {"regexes":[

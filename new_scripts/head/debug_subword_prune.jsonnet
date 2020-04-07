@@ -25,8 +25,7 @@ local span_pair_embedding_dim = 3 * span_embedding_dim + feature_size;
         "max_length": max_length
       },
     },
-    "max_sentences": 40,
-    "truncation": false,
+    "max_sentences": 11,
   },
   "validation_dataset_reader": {
     "type": "coref_head_joint_bert_subword",
@@ -45,39 +44,30 @@ local span_pair_embedding_dim = 3 * span_embedding_dim + feature_size;
   "validation_data_path": std.extVar("COREF_DEV_DATA_PATH"),
   "test_data_path": std.extVar("COREF_TEST_DATA_PATH"),
   "model": {
-    "type": "coref_head_joint_bert_attention_cheap",
+    "type": "coref_head_joint_bert_prune",
     "text_field_embedder": {
-      "type": "many",
       "token_embedders": {
         "tokens": {
-            "type": "attention_pretrained_transformer",
+            "type": "pretrained_transformer",
             "model_name": bert_model,
             "max_length": max_length
         }
       }
     },
     "token_mask_feedforward": {
-      "input_dim": 400,
+      "input_dim": 768,
       "num_layers": 1,
       "hidden_dims": 1,
       "activations": "linear",
     },
-    "context_layer": {
-        "type": "lstm",
-        "bidirectional": true,
-        "input_size": 768,
-        "hidden_size": 200,
-        "num_layers": 1
-    },
 
     "initializer": {"regexes":[
         [".*linear_layers.*weight", {"type": "xavier_normal"}],
-        ["_context_layer._module.weight_ih.*", {"type": "xavier_normal"}],
-        ["_context_layer._module.weight_hh.*", {"type": "orthogonal"}]
     ]},
     "heads_per_word": 0.5,
     "lexical_dropout": 0.5,
   },
+
   "data_loader": {
     "batch_sampler": {
       "type": "bucket",

@@ -99,8 +99,8 @@ class AttentionPretrainedTransformerEmbedder(TokenEmbedder):
                 if max_type_id >= self._number_of_token_type_embeddings():
                     raise ValueError("Found type ids too large for the chosen transformer model.")
                 assert token_ids.shape == type_ids.shape
-        print("SHAPE BEFORE FOLD")
-        print(token_ids.shape)
+        # print("SHAPE BEFORE FOLD")
+        # print(token_ids.shape)
         #TODO save more memory
         #fold_long_sequences = self._max_length is not None and token_ids.size(1) > self._max_length
         fold_long_sequences = True
@@ -109,8 +109,8 @@ class AttentionPretrainedTransformerEmbedder(TokenEmbedder):
             token_ids, segment_concat_mask, type_ids, fold_unfold_map = self._fold_long_sequences(
                 token_ids, segment_concat_mask, type_ids
             )
-        print("SHAPE AFTER FOLD")
-        print(token_ids.shape)
+        # print("SHAPE AFTER FOLD")
+        # print(token_ids.shape)
 
         transformer_mask = segment_concat_mask if self._max_length is not None else mask
         # Shape: [batch_size, num_wordpieces, embedding_size],
@@ -128,8 +128,8 @@ class AttentionPretrainedTransformerEmbedder(TokenEmbedder):
         #embeddings = self.transformer_model(**parameters)[0]
         embeddings, _, attentions = self.transformer_model(**parameters)
         attentions = torch.cat(attentions, 1)
-        print("SHAPE AFTER TRANSFORMER")
-        print(embeddings.shape)
+        # print("SHAPE AFTER TRANSFORMER")
+        # print(embeddings.shape)
 
         if fold_long_sequences:
             embeddings = self._unfold_long_sequences(
@@ -204,8 +204,8 @@ class AttentionPretrainedTransformerEmbedder(TokenEmbedder):
         inseg_indices = inseg_indices[:, :num_segment_concat_wordpieces, :]
         seg_indices = seg_indices[:, :num_segment_concat_wordpieces, :]
         unfold_map = torch.cat([seg_indices, inseg_indices], -1)
-        print(token_ids.shape)
-        print(unfold_map.shape)
+        # print(token_ids.shape)
+        # print(unfold_map.shape)
 
         return fold(token_ids), fold(mask), fold(type_ids) if type_ids is not None else None, fold_3d(unfold_map)
 
@@ -257,7 +257,7 @@ class AttentionPretrainedTransformerEmbedder(TokenEmbedder):
         # Open an issue on GitHub if this breaks for you.
         # Shape: (batch_size,)
         seq_lengths = mask.sum(-1)
-        print(seq_lengths)
+        # print(seq_lengths)
         # exit()
         if not (lengths_to_mask(seq_lengths, mask.size(1), device) == mask).all():
             raise ValueError(
