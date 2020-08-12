@@ -1,69 +1,44 @@
-import sys
+# import os
+# import sys
+#
+# vocab2 = "/ssd-playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/h2s_out_finetune/vocabulary/tokens.txt"
+# vocab1 = "/ssd-playpen/home/xzh/work/pytorch-pretrained-BERT/outputs/h2s_debug_gold/vocabulary/tokens.txt"
+#
+# with open(vocab1, 'r') as fv:
+#     lines = fv.readlines()
+#
+# vocab = []
+# for line in lines:
+#     vocab.append(line)
+#
+# vset = set(vocab)
+#
+# with open(vocab2, 'r') as fv:
+#     new_lines = fv.readlines()
+#
+# for line in new_lines:
+#     if line not in vset:
+#         vocab.append(line)
+#
+#
+# print(len(vocab))
+#
+# with open('tokens.txt', 'w') as fw:
+#     for line in vocab:
+#         fw.write(line)
+
+def all_same(items):
+    return all(x == items[0] for x in items)
+
 from conll import reader
-from conll import util
-from pprint import pprint
-
-
-lines = ['bc/cctv/00/cctv_0001   0   0   It   PRP   (TOP(S(NP*)   -   -   -   '
- 'Speaker#1   *   *   (ARG1*)   (3)\n',
- 'bc/cctv/00/cctv_0001   0   1   is   VBZ   (VP*   be   03   -   Speaker#1   '
- '*   (V*)   *   -\n',
- 'bc/cctv/00/cctv_0001   0   2   composed   VBN   (VP*   compose   01   2   '
- 'Speaker#1   *   *   (V*)   -\n',
- 'bc/cctv/00/cctv_0001   0   3   of   IN   (PP*   -   -   -   Speaker#1   *   '
- '*   (ARG2*   -\n',
- 'bc/cctv/00/cctv_0001   0   4   a   DT   (NP(NP*   -   -   -   Speaker#1   '
- '*   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   5   primary   JJ   *   -   -   -   Speaker#1   '
- '*   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   6   stele   NN   *)   -   -   -   Speaker#1   *   '
- '*   *   (4)\n',
- 'bc/cctv/00/cctv_0001   0   7   ,   ,   *   -   -   -   Speaker#1   *   *   '
- '*   -\n',
- 'bc/cctv/00/cctv_0001   0   8   secondary   JJ   (NP*   -   -   -   '
- 'Speaker#1   *   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   9   steles   NNS   *)   -   -   -   Speaker#1   '
- '*   *   *   (5)\n',
- 'bc/cctv/00/cctv_0001   0   10   ,   ,   *   -   -   -   Speaker#1   *   *   '
- '*   -\n',
- 'bc/cctv/00/cctv_0001   0   11   a   DT   (NP*   -   -   -   Speaker#1   *   '
- '*   *   -\n',
- 'bc/cctv/00/cctv_0001   0   12   huge   JJ   *   -   -   -   Speaker#1   *   '
- '*   *   -\n',
- 'bc/cctv/00/cctv_0001   0   13   round   NN   *   round   -   -   Speaker#1   '
- '*   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   14   sculpture   NN   (NML(NML*)   sculpture   '
- '-   -   Speaker#1   *   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   15   and   CC   *   -   -   -   Speaker#1   *   '
- '*   *   -\n',
- 'bc/cctv/00/cctv_0001   0   16   beacon   NN   (NML*   beacon   -   -   '
- 'Speaker#1   *   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   17   tower   NN   *)))   -   -   -   Speaker#1   '
- '*   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   18   ,   ,   *   -   -   -   Speaker#1   *   *   '
- '*   -\n',
- 'bc/cctv/00/cctv_0001   0   19   and   CC   *   -   -   -   Speaker#1   *   '
- '*   *   -\n',
- 'bc/cctv/00/cctv_0001   0   20   the   DT   (NP*   -   -   -   Speaker#1   '
- '(WORK_OF_ART*   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   21   Great   NNP   *   -   -   -   Speaker#1   '
- '*   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   22   Wall   NNP   *)   -   -   -   Speaker#1   '
- '*)   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   23   ,   ,   *   -   -   -   Speaker#1   *   *   '
- '*   -\n',
- 'bc/cctv/00/cctv_0001   0   24   among   IN   (PP*   -   -   -   Speaker#1   '
- '*   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   25   other   JJ   (NP*   -   -   -   Speaker#1   '
- '*   *   *   -\n',
- 'bc/cctv/00/cctv_0001   0   26   things   NNS   *))))))   -   -   -   '
- 'Speaker#1   *   *   *)   -\n',
- 'bc/cctv/00/cctv_0001   0   27   .   .   *))   -   -   -   Speaker#1   *   '
- '*   *   -\n']
-
-root= reader.extract_annotated_parse(lines, 0)
-
-
-line = 'bc/cctv/00/cctv_0001   1   4   Commander   NNP   (NP(NP(NP(NML(NML*)   -   -   -   Speaker#1   *   (ARG0*   -\n'
-print(reader.extract_coref_annotation(line))
-
+file = '/playpen/home/xzh/datasets/coref/allen/train.english.v4_gold_conll'
+doc_lines = reader.get_doc_lines(file)
+for doc_key, doc in doc_lines.items():
+    for sentence in doc:
+        speakers = [token_line.strip().split()[9] for token_line in sentence]
+        try:
+            assert(all_same(speakers))
+        except:
+            print(doc_key)
+            exit()
+print("COOL!")

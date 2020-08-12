@@ -169,6 +169,8 @@ def extract_annotated_parse(mention_lines, start_index,
                        any(c.isdigit() for c in terminal_nodes):
                         node = mention.TreeNode(' '.join(terminal_nodes),
                                 pos_tags, terminal_indices[-1], True)
+                        # node = mention.TreeNode(' '.join(terminal_nodes),
+                        #                         pos_tags, start_index + i, True)
                         all_nodes.append(node)
                         if open_nodes:
                             if open_nodes[-1].children:
@@ -211,6 +213,8 @@ def extract_annotated_parse(mention_lines, start_index,
 
                     node = mention.TreeNode(' '.join(terminal_nodes),
                             pos_tags, terminal_indices[-1], True)
+                    # node = mention.TreeNode(' '.join(terminal_nodes),
+                    #                         pos_tags, start_index + i, True)
                     all_nodes.append(node)
                     if open_nodes:
                         if open_nodes[-1].children:
@@ -238,6 +242,8 @@ def extract_annotated_parse(mention_lines, start_index,
                     j == len(parse) - 1 and terminal_nodes):
                 node = mention.TreeNode(' '.join(terminal_nodes),
                         pos_tags, terminal_indices[-1], True)
+                # node = mention.TreeNode(' '.join(terminal_nodes),
+                #                         pos_tags, start_index + i, True)
                 all_nodes.append(node)
                 if open_nodes:
                     if open_nodes[-1].children:

@@ -11,6 +11,7 @@ from allennlp.models.model import Model
 from allennlp.modules import FeedForward
 from allennlp.modules import Seq2SeqEncoder, TimeDistributed, TextFieldEmbedder
 from allennlp.modules.matrix_attention import BilinearMatrixAttention
+from torch.nn import MultiheadAttention
 from allennlp.nn import util, InitializerApplicator, RegularizerApplicator
 from .conll_head_coref_scores import ConllHeadCorefScores, ConllHeadPruneCorefScores
 
@@ -351,6 +352,7 @@ class CoreferenceResolver(Model):
         if self._token_mask_ff is not None:
             token_mask = self._token_mask_ff(top_head_embeddings)
             token_mask_attention = torch.matmul(token_mask, token_mask.transpose(1, 2))
+            # token_mask_attention = torch.min(token_mask, token_mask.transpose(1, 2))
             head_link_matrix = head_link_matrix * token_mask_attention
 
         pruned_length = head_link_matrix.shape[-1]
@@ -395,7 +397,8 @@ class CoreferenceResolver(Model):
 
 
         output_dict = {
-            "predicted_antecedents": original_antecedent_indices
+            "predicted_antecedents": original_antecedent_indices,
+            "top_head_indices": top_head_indices
         }
 
         if span_labels is not None:
@@ -470,6 +473,7 @@ class CoreferenceResolver(Model):
 
         if metadata is not None:
             output_dict["document"] = [x["original_text"] for x in metadata]
+            output_dict["reverse_map"] = [x["reverse_map"] for x in metadata]
         return output_dict
 
     @overrides
@@ -494,6 +498,7 @@ class CoreferenceResolver(Model):
         # the index into ``antecedent_indices`` which specifies the antecedent span. Additionally,
         # the index can be -1, specifying that the span has no predicted antecedent.
         batch_predicted_antecedents = output_dict["predicted_antecedents"].detach().cpu()
+        batch_top_head_indices = output_dict["top_head_indices"].detach().cpu()
 
         batch_clusters: List[List[List[Tuple[int, int]]]] = []
 
@@ -502,12 +507,14 @@ class CoreferenceResolver(Model):
         for batch_idx, predicted_antecedents in enumerate(batch_predicted_antecedents):
             spans_to_cluster_ids: Dict[Tuple[int, int], int] = {}
             clusters: List[List[Tuple[int, int]]] = []
+            top_head_indices = batch_top_head_indices[batch_idx]
 
             for cur_index, predicted_antecedent in enumerate(predicted_antecedents):
                 if predicted_antecedent < 0:
                     # We don't care about spans which are
                     # not co-referent with anything.
                     continue
+                real_i = top_head_indices[cur_index].item()
 
                 # Find the right cluster to update with this span.
                 # To do this, we find the row in ``antecedent_indices``
@@ -534,7 +541,8 @@ class CoreferenceResolver(Model):
                     spans_to_cluster_ids[antecedent_span] = predicted_cluster_id
 
                 # Now add the span we are currently considering.
-                span_start, span_end = cur_index, cur_index
+                span_start, span_end = real_i, real_i
+                # span_start, span_end = cur_index, cur_index
                 clusters[predicted_cluster_id].append((span_start, span_end))
                 spans_to_cluster_ids[(span_start, span_end)] = predicted_cluster_id
             batch_clusters.append(clusters)

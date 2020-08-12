@@ -10,6 +10,85 @@ from conll import mention
 from pprint import pprint
 from tqdm import tqdm, trange
 
+
+
+
+
+def convert_pred_to_conll_format(pred_file, key_file, out_file):
+    with open(pred_file, 'r') as fpred, open(key_file, 'r') as fkey:
+        pred_lines = fpred.readlines()
+        key_lines = fkey.readlines()
+
+
+    doc_lines = []
+    # get document lines for key lines
+    for k_line in key_lines:
+        if k_line[:6] == "#begin":
+            doc_lines.append([])
+        doc_lines[-1].append(k_line)
+
+    #assertion
+    # for d in doc_lines:
+    #     try:
+    #         assert(d[-1][:4] == '#end')
+    #     except:
+    #         print(d)
+    #         print(doc_lines)
+    #         exit()
+    # try:
+    #     assert(len(doc_lines) == len(pred_lines))
+    # except:
+    #     print(len(doc_lines))
+    #     print(len(pred_lines))
+    #     exit()
+
+
+    new_lines = []
+
+    for i, p_line in enumerate(pred_lines):
+        preds = json.loads(p_line)
+        predicted_antecedents = preds["predicted_antecedents"]
+        clusters = preds["clusters"]
+        if "reverse_map" in preds.keys():
+            reverse_map = preds["reverse_map"]
+        else:
+            reverse_map = {str(x): x for x in range(99999)}
+
+        wordid2label = {}
+        for c_idx, cluster in enumerate(clusters):
+            for span in cluster:
+                assert(span[0] == span[1])
+                if str(span[0]) not in reverse_map:
+                    continue
+                wordid = reverse_map[str(span[0])]
+                if wordid in wordid2label:
+                    wordid2label[wordid].append(c_idx)
+                else:
+                    wordid2label[wordid] = [c_idx]
+
+        document = doc_lines[i]
+
+        word_count = 0
+        for k_line in document:
+            if k_line[0] == '#' or len(k_line) < 5:
+                # start, end and empty lines
+                new_lines.append(k_line)
+                continue
+            columns = k_line.strip().split()
+            if word_count not in wordid2label:
+                new_label = '-'
+            else:
+                new_label = '|'.join(['(%d)'%c_id for c_id in wordid2label[word_count]])
+            new_columns = columns[:-1] + [new_label]
+            new_line = '   '.join(new_columns) + '\n'
+            word_count += 1
+            new_lines.append(new_line)
+
+    with open(out_file, 'w') as fw:
+        for line in new_lines:
+            fw.write(line)
+
+
 def write_lines_back_to_file(doc_lines, path):
     with open(path, 'w') as fw:
         for k, v in doc_lines.items():
@@ -22,6 +101,43 @@ def write_lines_back_to_file(doc_lines, path):
                 if sentence:
                     fw.write('\n')
             fw.write('#end document\n')
+
+
+
+def set_new_cluster_annotation_woldspan(doc_lines, key_mention_sys_cluster):
+    # get cluster annotation dict cluster_id_dict
+    all_keys = list(key_mention_sys_cluster.keys())
+    all_mentions = [[(m, c_id) for (m, c_id) in key_mention_sys_cluster[k].items()] for k in all_keys]
+    all_mentions = [(m, c_id) for sublist in all_mentions for (m, c_id) in sublist]
+    cluster_id_dict = {}
+    for m, c_id in all_mentions:
+        words = m.words
+        min_spans = m.min_spans
+        last_min_span = sorted(list(min_spans), key=lambda x: x[1])[-1]
+        m_token_identifier = m.doc_name.strip() + '_senidx%d' % m.sent_num + '_tokenidx%d' % last_min_span[1]
+        if m_token_identifier not in cluster_id_dict:
+            cluster_id_dict[m_token_identifier] = '(%d, %d, %d)' % (c_id, m.start, m.end)
+        else:
+            cluster_id_dict[m_token_identifier] += '|(%d, %d, %d)' % (c_id, m.start, m.end)
+
+    new_doc_lines = {}
+    for k, v in doc_lines.items():
+        new_doc_lines[k] = []
+        for sen_idx, sentence in enumerate(v):
+            new_doc_lines[k].append([])
+            for token_idx, token_line in enumerate(sentence):
+                split_columns = token_line.split()
+                # last column is coref cluster annotation
+                token_identifier = k.strip() + '_senidx%d' % sen_idx + '_tokenidx%d' % token_idx
+                if token_identifier in cluster_id_dict:
+                    split_columns[-1] = cluster_id_dict[token_identifier]
+                else:
+                    split_columns[-1] = '-'
+                # print(len(token_line.split()))
+                new_columns = '   '.join(split_columns)
+                new_doc_lines[k][-1].append(new_columns)
+    # print(new_doc_lines)
+    return new_doc_lines
 
 
 def set_new_cluster_annotation(doc_lines, key_mention_sys_cluster):
@@ -59,6 +175,44 @@ def set_new_cluster_annotation(doc_lines, key_mention_sys_cluster):
     # print(new_doc_lines)
     return new_doc_lines
 
+
+
+def set_collins_new_cluster_annotation(doc_lines, key_mention_sys_cluster):
+    # get cluster annotation dict cluster_id_dict
+    all_keys = list(key_mention_sys_cluster.keys())
+    all_mentions = [[(m, c_id) for (m, c_id) in key_mention_sys_cluster[k].items()] for k in all_keys]
+    all_mentions = [(m, c_id) for sublist in all_mentions for (m, c_id) in sublist]
+    cluster_id_dict = {}
+    for m, c_id in all_mentions:
+        head = m.head
+        if head is None:
+            m.set_head()
+            head = m.head
+        assert(head is not None)
+        m_token_identifier = m.doc_name.strip() + '_senidx%d' % m.sent_num + '_tokenidx%d' % head[1]
+        if m_token_identifier not in cluster_id_dict:
+            cluster_id_dict[m_token_identifier] = '(%d)' % c_id
+        else:
+            cluster_id_dict[m_token_identifier] += '|(%d)' % c_id
+
+    new_doc_lines = {}
+    for k, v in doc_lines.items():
+        new_doc_lines[k] = []
+        for sen_idx, sentence in enumerate(v):
+            new_doc_lines[k].append([])
+            for token_idx, token_line in enumerate(sentence):
+                split_columns = token_line.split()
+                # last column is coref cluster annotation
+                token_identifier = k.strip() + '_senidx%d' % sen_idx + '_tokenidx%d' % token_idx
+                if token_identifier in cluster_id_dict:
+                    split_columns[-1] = cluster_id_dict[token_identifier]
+                else:
+                    split_columns[-1] = '-'
+                # print(len(token_line.split()))
+                new_columns = '   '.join(split_columns)
+                new_doc_lines[k][-1].append(new_columns)
+    # print(new_doc_lines)
+    return new_doc_lines
 
 
 def set_pred_cluster_annotation(doc_lines, pred_examples, span_loc_dict):
@@ -161,6 +315,26 @@ def get_min_span_file(file_path, NP_only=False, remove_nested=False, keep_single
     minspan_doc_lines = set_new_cluster_annotation(doc_lines, key_mention_sys_cluster)
     write_lines_back_to_file(minspan_doc_lines, file_path + '.min_span')
 
+
+
+def get_collins_min_span_file(file_path, NP_only=False, remove_nested=False, keep_singletons=True, min_span=True):
+    """input max span file in conll format, output min span file in conll format"""
+    key_file = sys_file = file_path
+    doc_coref_infos = reader.get_coref_infos(key_file, sys_file, NP_only, remove_nested, keep_singletons, min_span)
+    key_mention_sys_cluster = {k: v[2] for k, v in doc_coref_infos.items()}
+    doc_lines = reader.get_doc_lines(key_file)
+    minspan_doc_lines = set_collins_new_cluster_annotation(doc_lines, key_mention_sys_cluster)
+    write_lines_back_to_file(minspan_doc_lines, file_path + '.collins.min_span')
+
+
+def get_min_span_head_mapping(file_path, NP_only=False, remove_nested=False, keep_singletons=True, min_span=True):
+    """input max span file in conll format, output min span file in conll format"""
+    key_file = sys_file = file_path
+    doc_coref_infos = reader.get_coref_infos(key_file, sys_file, NP_only, remove_nested, keep_singletons, min_span)
+    key_mention_sys_cluster = {k: v[2] for k, v in doc_coref_infos.items()}
+    doc_lines = reader.get_doc_lines(key_file)
+    minspan_doc_lines = set_new_cluster_annotation_woldspan(doc_lines, key_mention_sys_cluster)
+    write_lines_back_to_file(minspan_doc_lines, file_path + '.hs_map')
 
 
 def map_pred_to_conll_file(pred_file, conll_file):
@@ -628,9 +802,42 @@ def get_upper_bound(input_file):
     print("Please run outer scripts to evaluate the conll metrics for input_file and the generated file.")
 
 
+def check_max_len(file_path):
+    doc_lines = reader.get_doc_lines(file_path)
+    max_len = 0
+    longest_k = ""
+    for k,v in doc_lines.items():
+        if sum([len(s) for s in v]) > max_len:
+            max_len = sum([len(s) for s in v])
+            longest_k = k
+
+
+    long_doc_lines = {longest_k: doc_lines[longest_k]}
+    write_lines_back_to_file(long_doc_lines,'/playpen/home/xzh/datasets/coref/allen/long.english.v4_gold_conll')
+
+
+
+    print(max_len)
+
+
 
 if __name__ == '__main__':
     #map_pred_to_conll_file(pred_file='./outputs/allen_test/pred_on_dev.out', conll_file='./dev.min_span')
-    #get_min_span_file(file_path='./pred_on_dev.conll_span')
+    # get_min_span_file(file_path='./pred_on_dev.conll_span')
+    # get_min_span_file(file_path='/playpen/home/xzh/datasets/coref/allen/train.english.v4_gold_conll')
+    # get_min_span_file(file_path='/playpen/home/xzh/datasets/coref/allen/debug.english.v4_gold_conll')
+    # get_min_span_file(file_path='/playpen/home/xzh/datasets/coref/allen/long.english.v4_gold_conll')
+    # get_min_span_head_mapping(file_path='/playpen/home/xzh/datasets/coref/allen/train.out.parse.english.v4_gold_conll.short')
+    # get_min_span_head_mapping(file_path='/playpen/home/xzh/datasets/coref/allen/dev.out.parse.english.v4_gold_conll.short')
+    # get_min_span_head_mapping(file_path='/playpen/home/xzh/datasets/coref/allen/test.out.parse.english.v4_gold_conll.short')
+    # get_min_span_file(file_path='/playpen/home/xzh/datasets/coref/allen/out.parse.english.v4_gold_conll')
     #get_max_span_file('train.min_span')
-    get_upper_bound('train.min_span')
+    #get_upper_bound('train.min_span')
+    # get_collins_min_span_file(file_path='/playpen/home/xzh/datasets/coref/allen/debug.english.v4_gold_conll')
+    # get_collins_min_span_file(file_path='/playpen/home/xzh/datasets/coref/allen/dev.english.v4_gold_conll')
+    # get_collins_min_span_file(file_path='/playpen/home/xzh/datasets/coref/allen/test.english.v4_gold_conll')
+    # get_collins_min_span_file(file_path='/playpen/home/xzh/datasets/coref/allen/train.english.v4_gold_conll')
+    # print("DONE!")
+
+    # check_max_len('/playpen/home/xzh/datasets/coref/allen/dev.english.v4_gold_conll')
+    pass

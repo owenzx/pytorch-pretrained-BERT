@@ -249,6 +249,16 @@ class ConllCorefReaderHeadBert(DatasetReader):
         spans: List[Field] = []
         span_labels: Optional[List[int]] = [] if gold_clusters is not None else None
 
+        # print("LENS")
+        # print(len(flattened_sentences))
+        # print(len(offsets))
+        # exit()
+        reverse_map = {}
+        for i in range(len(offsets)):
+            reverse_map[offsets[i][1]] = i
+
+
+
 
 
         for start, end in enumerate_spans(flattened_sentences, max_span_width=1):
@@ -310,6 +320,7 @@ class ConllCorefReaderHeadBert(DatasetReader):
         metadata: Dict[str, Any] = {"original_text": flattened_sentences}
         if gold_clusters is not None:
             metadata["clusters"] = gold_clusters
+        metadata["reverse_map"] = reverse_map
         metadata_field = MetadataField(metadata)
 
 

@@ -3,7 +3,13 @@ import json
 import os
 import numpy as np
 from copy import deepcopy
-from utils import bert_simple_detokenize
+
+
+
+def bert_simple_detokenize(tokens):
+    text = ' '.join([x for x in tokens])
+    fine_text = text.replace(' ##', '')
+    return fine_text
 
 
 
@@ -285,7 +291,7 @@ def cluster_error_ana(pred_file, ana_type='pair', sample_num=10, out_file=None):
         #if "Udai" not in predictions['document']:
         #    continue
 
-        tokenized_text = predictions['tokenized_text']
+        tokenized_text = predictions['tokenized_text'] if 'tokenized_text' in predictions.keys() else predictions['document']
 
         totuple = lambda t: tuple(totuple(tt) for tt in t) if isinstance(t, list) else t
 
@@ -413,9 +419,9 @@ def main():
     if ana_type == 'full':
         for a_type in ['mention', 'pair', 'mention_overlap']:
             o_file = out_file + a_type + '.md'
-            cluster_error_ana(pred_file, a_type, 10, o_file)
+            cluster_error_ana(pred_file, a_type, -1, o_file)
     else:
-        cluster_error_ana(pred_file, ana_type, 10, out_file)
+        cluster_error_ana(pred_file, ana_type, -1, out_file)
 
 
 

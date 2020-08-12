@@ -1,4 +1,163 @@
 import hashlib
+import re
+
+
+class HeadFinder:
+    """Compute heads of mentions.
+    This class provides functions to compute heads of mentions via modified
+    version of the rules that can be found in Michael Collins' PhD thesis.
+    The following changes were introduced:
+        - handle NML as NP,
+        - for coordinated phrases, take the coordination token as head,
+    Furthermore, this class provides a function for adjusting heads for proper
+    names to multi-token phrases via heuristics (see adjust_head_for_nam).
+    """
+    def __init__(self):
+        self.__nonterminals = ["NP", "NML", "VP", "ADJP", "QP", "WHADVP", "S",
+                             "ADVP", "WHNP", "SBAR", "SBARQ", "PP", "INTJ",
+                             "SQ", "UCP", "X", "FRAG"]
+
+
+        self.__nonterminal_rules = {
+            "VP": (["TO", "VBD", "VBN", "MD", "VBZ", "VB", "VBG", "VBP", "VP",
+                     "ADJP", "NN", "NNS", "NP"], False),
+            "ADJP": (["NNS", "QP", "NN", "\$", "ADVP", "JJ", "VBN", "VBG", "ADJP",
+              "JJR", "NP", "JJS", "DT", "FW", "RBR", "RBS", "SBAR", "RB"],
+                     False),
+            "QP": (["\$", "NNS", "NN", "IN", "JJ", "RB", "DT", "CD", "NCD",
+              "QP", "JJR", "JJS"], False),
+            "WHADVP": (["CC", "WRB"], True),
+            "S": (["TO", "IN", "VP", "S", "SBAR", "ADJP", "UCP", "NP"], False),
+            "SBAR": (["WHNP", "WHPP", "WHADVP", "WHADJP", "IN", "DT", "S", "SQ",
+              "SINV", "SBAR", "FRAG"], False),
+            "SBARQ": (["SQ", "S", "SINV", "SBARQ", "FRAG"], False),
+            "SQ": (["VBZ", "VBD", "VBP", "VB", "MD", "VP", "SQ"], False),
+            "ADVP": (["RB", "RBR", "RBS", "FW", "ADVP", "TO", "CD", "JJR", "JJ",
+              "IN", "NP", "JJS", "NN"], True),
+            "WHNP": (["WDT", "WP", "WP$", "WHADJP", "WHPP", "WHNP"], True),
+            "PP": (["IN", "TO", "VBG", "VBN", "RP", "FW"], True),
+            "X": (["S", "VP", "ADJP", "JJP", "NP", "SBAR", "PP", "X"], True),
+            "FRAG": (["*"], True),
+            "INTJ": (["*"], False),
+            "UCP": (["*"], True),
+        }
+
+    def get_head(self, tree):
+        """
+        Compute the head of a mention, which is represented by its parse tree.
+        Args:
+            tree (nltk.ParentedTree): The parse tree of a mention.
+        Returns:
+            nltk.ParentedTree: The subtree of the input tree which corresponds
+            to the head of the mention.
+        """
+        head = None
+
+        label = tree.tag
+        # print(label)
+
+        if len(tree.children) == 1:
+            if tree.height() == 3:
+                head = tree.children[0]
+            elif tree.height() == 2:
+                head = tree
+            elif tree.height() == 1:
+                head = tree
+        elif len(tree.children) == 0:
+            head = tree
+        elif label in ["NP", "NML"]:
+            head = self.__get_head_for_np(tree)
+        elif label in self.__nonterminals:
+            head = self.__get_head_for_nonterminal(tree)
+        if head is None:
+            head = self.get_head(tree.children[-1])
+
+        return head
+
+    def __get_head_for_np(self, tree):
+        if self.__rule_cc(tree) is not None:
+            return self.__rule_cc(tree)
+        elif self.__collins_rule_nn(tree) is not None:
+            return self.__collins_rule_nn(tree)
+        elif self.__collins_rule_np(tree) is not None:
+            return self.get_head(self.__collins_rule_np(tree))
+        elif self.__collins_rule_nml(tree) is not None:
+            return self.get_head(self.__collins_rule_nml(tree))
+        elif self.__collins_rule_prn(tree) is not None:
+            return self.__collins_rule_prn(tree)
+        elif self.__collins_rule_cd(tree) is not None:
+            return self.__collins_rule_cd(tree)
+        elif self.__collins_rule_jj(tree) is not None:
+            return self.__collins_rule_jj(tree)
+        elif self.__collins_rule_last_word(tree) is not None:
+            return self.__collins_rule_last_word(tree)
+
+    def __get_head_for_nonterminal(self, tree):
+        label = tree.tag
+        values, traverse_reversed = self.__nonterminal_rules[label]
+        if traverse_reversed:
+            to_traverse = reversed(tree.children)
+        else:
+            to_traverse = tree.children
+        for val in values:
+            for child in to_traverse:
+                label = child.tag
+                if val == "*" or label == val:
+                    if label in self.__nonterminals:
+                        return self.get_head(child)
+                    else:
+                        return self.get_head(child)
+
+    def __rule_cc(self, tree):
+        if tree.tag == "NP":
+            for child in tree.children:
+                if child.tag == "CC":
+                    return self.get_head(child)
+
+
+    def __collins_rule_nn(self, tree):
+        for i in range(len(tree.children)-1, -1, -1):
+            if re.match("NN|NNP|NNPS|JJR", tree.children[i].tag):
+                return self.get_head(tree.children[i])
+            elif tree.children[i].tag == "NX":
+                return self.get_head(tree.children[i])
+
+    def __collins_rule_np(self, tree):
+        for child in tree.children:
+            if child.tag == "NP":
+                return self.get_head(child)
+
+    def __collins_rule_nml(self, tree):
+        for child in tree.children:
+            if child.tag == "NML":
+                return self.get_head(child)
+
+    def __collins_rule_prn(self, tree):
+        for child in tree.children:
+            if child.tag == "PRN":
+                return self.get_head(child.children[0])
+
+    def __collins_rule_cd(self, tree):
+        for i in range(len(tree.children)-1, -1, -1):
+            if re.match("CD", tree.children[i].tag):
+                return self.get_head(tree.children[i])
+
+    def __collins_rule_jj(self, tree):
+        for i in range(len(tree.children)-1, -1, -1):
+            if re.match("JJ|JJS|RB", tree.children[i].tag):
+                return self.get_head(tree.children[i])
+            elif tree.children[i].tag == "QP":
+                return self.get_head(tree.children[i])
+
+    def __collins_rule_last_word(self, tree):
+        #current_tree = tree.children[-1]
+        current_tree = tree
+        while current_tree.height() >= 2:
+            current_tree = current_tree.children[-1]
+        return self.get_head(current_tree)
+
+
+hf = HeadFinder()
 
 
 class Mention:
@@ -11,6 +170,7 @@ class Mention:
         self.gold_parse_is_set = False
         self.gold_parse = None
         self.min_spans = set()
+        self.head = None
         
         
     def __eq__(self, other):
@@ -189,6 +349,15 @@ class Mention:
 
         return valid_tags
 
+    def set_head(self):
+        root = self.gold_parse
+        assert(root is not None)
+        head_node = hf.get_head(root)
+        assert(len(head_node.children)<=1)
+
+        if len(head_node.children) == 1:
+            head_node = head_node.children[0]
+        self.head = [head_node.tag, head_node.index]
 
     def set_min_span(self):
 
@@ -200,6 +369,7 @@ class Mention:
 
         if not root:
             return
+
 
         terminal_shortest_depth = float('inf')
         queue = [(root, 0)]
@@ -215,6 +385,28 @@ class Mention:
         In structures like conjunctions the minimum span is determined independently
         for each of the top-level NPs
         '''
+        # also add head
+        try:
+            head_node = hf.get_head(root)
+        except:
+            print(self.start)
+            print(self.words)
+            exit()
+        try:
+            assert(len(head_node.children)<=1)
+        except:
+            print(self.start)
+            print(self.words)
+            print(head_node.tag)
+            print(head_node.children[0].index)
+            print([t.tag for t in head_node.children])
+            print([t.children for t in head_node.children])
+            exit()
+
+        if len(head_node.children) == 1:
+            head_node = head_node.children[0]
+        self.head = [head_node.tag, head_node.index]
+
         if top_level_valid_phrases:
             for node in top_level_valid_phrases:
                 self.get_valid_node_min_span(node, valid_tags, self.min_spans) 
@@ -227,7 +419,7 @@ class Mention:
         If there was no valid minimum span due to parsing errors return the whole span
         """
         if len(self.min_spans)==0:
-            self.min_spans.update([(word, index) for index, word in enumerate(self.words)])
+            self.min_spans.update([(word, self.start + index) for index, word in enumerate(self.words)])
 
 
     
@@ -261,4 +453,10 @@ class TreeNode:
                 children.append(child)
         return children
 
+    def height(self):
+        max_child_height = 0
+        for child in self.children:
+            max_child_height = max(max_child_height, child.height())
+        return 1 + max_child_height
             
+
